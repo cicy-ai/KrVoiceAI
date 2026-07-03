@@ -17,6 +17,11 @@ cd LatentSync
 if [ ! -f .deps_done ]; then
   echo "== 安装依赖(约5-10分钟) =="
   apt-get -qq -y install libgl1 >/dev/null 2>&1 || true
+  # 修正 Colab(Python 3.12) 上缺 wheel 的固定版本
+  sed -i 's/^mediapipe==.*/mediapipe/'  requirements.txt      # 0.10.11 无 3.12 wheel
+  sed -i 's/^decord==.*/eva-decord/'    requirements.txt      # decord 无 3.12 wheel，用同名 fork
+  sed -i 's/^onnxruntime-gpu==.*/onnxruntime-gpu/' requirements.txt
+  sed -i 's/^insightface==.*/insightface/' requirements.txt
   pip install -q -r requirements.txt
   pip install -q edge-tts
   touch .deps_done
