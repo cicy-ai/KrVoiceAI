@@ -1,0 +1,177 @@
+# KrVoiceAI · 虚拟人口播智能体
+
+对标旗博士的**本地可运行**口播视频自动化生成系统。从文案到成片到发布，全流程一键化，支持纯 CPU 声音克隆 + Wav2Lip 视频驱动数字人。
+
+## ✨ 核心特性
+
+- 🎙️ **本地声音克隆**：基于 MOSS-TTS-Nano（0.1B ONNX），5 秒样本零样本克隆，纯 CPU 实时合成，无需上传云端
+- 🧑 **Wav2Lip 视频驱动数字人**：保留原视频头动/表情/眨眼，仅替换嘴形对齐 TTS 语音（视频驱动模式）
+- ✨ **GFPGAN 人脸增强（可选）**：含嘴部保护遮罩，避免口形失真；可在 UI 一键开关
+- 🎞️ **画中画时间线编辑器**：可视化时间线，支持 `cut`（全屏插播替换）和 `pip`（角窗画中画）两种模式
+- 📝 **AI 文案工作流**：润色/仿写/生成 + 原创检测（simhash + 违禁词 + LLM 风控）
+- 📤 **多平台发布**：抖音 / B站 / 快手 / 视频号，半自动打开创作者中心 + 生成发布清单
+- 🖥️ **7 标签页 Gradio GUI**：一键生成 / 声音克隆 / 形象管理 / 画中画编辑器 / 多平台发布 / 设置 / 任务管理
+- ⚡ **MX450 2GB GPU 可跑**：全部模块支持纯 CPU 运行，无需高端显卡
+
+## 🎬 工作流程
+
+```
+文案输入 → [LLM 润色/仿写] → [原创检测] → [MOSS-TTS 声音克隆]
+       → [Wav2Lip 唇形同步] → [字幕生成] → [画中画插播] → [视频合成]
+       → [标题生成] → [封面生成] → [多平台发布清单]
+```
+
+## 🛠️ 技术栈
+
+| 模块 | 技术方案 | 说明 |
+|------|---------|------|
+| **LLM 文案** | DeepSeek-V3 / Qwen2.5（agnes） | 文案润色、仿写、标题、风控 |
+| **TTS 声音克隆** | **MOSS-TTS-Nano (ONNX)** | 0.1B 模型，纯 CPU，5s 样本零样本克隆 |
+| **TTS 备选** | MiMo / GPT-SoVITS / edge-tts | 云端或无 GPU 降级方案 |
+| **数字人** | **Wav2Lip（视频驱动）** | Python 3.8 venv + torch 1.13 CPU |
+| **人脸增强** | **GFPGAN** | 嘴部保护遮罩，可开关 |
+| **字幕** | faster-whisper + ASS | 词级时间戳，卡拉OK逐字高亮 |
+| **画中画** | FFmpeg cut/pip | 全屏替换 / 角窗叠加 + 淡入淡出 |
+| **UI** | **Gradio 6.x** | 7 标签页，26 个 API 端点 |
+| **编排** | SQLite 状态机 | 断点续跑 + 指数退避重试 |
+
+## 🚀 快速开始
+
+### 1. 环境准备
+
+```bash
+# 主环境（Python 3.12）
+cd KrVoiceAI
+pip install -e .
+pip install onnxruntime sentencepiece soundfile gradio loguru edge-tts
+
+# Wav2Lip 环境（Python 3.8，独立 venv）
+# 参考 wav2lip_env 目录，需 torch 1.13.1+cpu, librosa, opencv, gfpgan
+```
+
+### 2. 克隆 MOSS-TTS-Nano 模型
+
+```bash
+# 仓库与 ONNX 模型（约 500MB）
+cd ..
+git clone https://github.com/OpenMOSS/MOSS-TTS-Nano.git
+# 设置 HF 镜像（国内）
+set HF_ENDPOINT=https://hf-mirror.com
+# 下载模型到 MOSS-TTS-Nano/models/（MOSS-TTS-Nano-100M-ONNX + MOSS-Audio-Tokenizer-Nano-ONNX）
+```
+
+### 3. 配置
+
+编辑 `.env`：
+
+```bash
+KRVOICEAI_LLM_PROVIDER=agnes
+KRVOICEAI_LLM_API_KEY=你的key
+KRVOICEAI_TTS_PROVIDER=moss_nano    # 本地声音克隆
+```
+
+或编辑 `config/default.yaml`，所有配置均可在 GUI「设置」标签页热修改。
+
+### 4. 启动 GUI
+
+**推荐：Web UI（现代化界面，对标旗博士）**
+
+```bash
+python -m krvoiceai.ui.cli web --port 8000
+```
+
+访问 http://localhost:8000
+
+**备用：Gradio UI（精简，功能受限）**
+
+```bash
+python -m krvoiceai.ui.cli serve --port 7860
+```
+
+访问 http://localhost:7860
+
+## 📋 GUI 标签页说明
+
+| 标签页 | 功能 |
+|--------|------|
+| 🎬 **一键生成** | 输入文案 → 全流程自动产出视频，含实时进度、成片预览、发布按钮 |
+| 🎙️ **声音克隆** | 上传 5-30s 人声样本注册音色，可试听克隆效果 |
+| 🧑 **形象管理** | 上传正脸口播视频注册 Wav2Lip 形象 |
+| 🎞️ **画中画编辑器** | 时间线可视化，添加/删除插播片段（cut 全屏 / pip 角窗） |
+| 📤 **多平台发布** | 生成发布清单，一键打开抖音/B站/快手/视频号创作者中心 |
+| ⚙️ **设置** | TTS 引擎 / GFPGAN 开关 / Wav2Lip 路径 / 字幕 / LLM / 发布模式，热生效 |
+| 📋 **任务管理** | 历史任务、断点续跑、删除 |
+
+## 📦 使用流程示例
+
+1. **注册形象**：在「形象管理」上传你的口播视频 → 注册为 `anchor_wang`
+2. **克隆声音**：在「声音克隆」上传你的声音样本 → 注册为 `voice_wang`，试听效果
+3. **编辑画中画**（可选）：在「画中画编辑器」添加插播片段
+4. **一键生成**：在「一键生成」输入文案，选择形象和音色 → 点击生成
+5. **发布**：生成完成后点击「发布到抖音」，浏览器自动打开创作者中心
+
+## 📂 项目结构
+
+```
+KrVoiceAI/
+├── krvoiceai/
+│   ├── core/              # 基础设施（config/logger/ffmpeg/settings_manager）
+│   ├── modules/           # 业务模块
+│   │   ├── tts_engine.py      # TTS（含 moss_nano/mimo/gpt_sovits/edge_tts/mock）
+│   │   ├── avatar_engine.py   # Wav2Lip 数字人 + GFPGAN 增强
+│   │   ├── broll_engine.py    # 画中画（cut 全屏替换 / pip 角窗）
+│   │   ├── video_composer.py  # 视频合成（字幕+BGM+画中画）
+│   │   ├── publisher.py       # 多平台发布
+│   │   └── ...
+│   ├── pipeline/          # 编排（orchestrator/state/parallel_runner）
+│   ├── ui/
+│   │   └── gradio_app.py      # 7 标签页 GUI
+│   └── app.py             # 主入口
+├── config/                # default.yaml + user_config.yaml + .env
+├── MOSS-TTS-Nano/         # 声音克隆模型（独立目录）
+├── wav2lip_env/           # Wav2Lip Python 3.8 venv
+└── Wav2Lip/               # Wav2Lip 仓库 + checkpoints
+```
+
+## ⚙️ 关键配置（config/default.yaml）
+
+```yaml
+tts:
+  provider: moss_nano              # moss_nano / mimo / gpt_sovits / edge_tts / mock
+  moss_nano:
+    cpu_threads: 4
+    builtin_voice: Junhao          # 无克隆样本时的内置音色
+    repo_dir: ../MOSS-TTS-Nano
+    model_dir: ../MOSS-TTS-Nano/models
+
+avatar:
+  provider: wav2lip
+  wav2lip:
+    env_python: D:/.../wav2lip_env/Scripts/python.exe
+  gfpgan:
+    enabled: false                 # 默认关闭，避免跳帧；UI 可一键开启
+    stride: 1                      # 1=逐帧最稳
+```
+
+## 🧪 已验证
+
+- ✅ MOSS-TTS-Nano 本地声音克隆（CPU，5s 样本零样本克隆，75s 音频合成）
+- ✅ Wav2Lip 视频驱动数字人（保留头动/表情，嘴形对齐）
+- ✅ GFPGAN 人脸增强（嘴部保护，可开关）
+- ✅ 画中画时间线编辑器（cut 全屏替换 + pip 角窗 + 淡入淡出）
+- ✅ 多平台发布清单生成（抖音/B站/快手/视频号）
+- ✅ Gradio GUI 7 标签页、26 个 API 端点全部通过验收
+- ✅ 设置热生效（tts/avatar/subtitle/llm/publisher 五段配置）
+
+## 📝 开发路线
+
+- [x] P0-P6：核心九模块 + 编排 + CLI + 部署
+- [x] **本地化**：Wav2Lip CPU 推理 + GFPGAN + faster-whisper 字幕
+- [x] **声音克隆**：MOSS-TTS-Nano ONNX 集成（去 torch 依赖）
+- [x] **GUI 重构**：7 标签页 + 画中画编辑器 + 设置热生效
+- [x] **多平台发布**：半自动模式 + 发布清单
+- [ ] PyInstaller 打包为单 exe
+
+## License
+
+MIT
