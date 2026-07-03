@@ -123,18 +123,15 @@ try:
 except Exception as e:
     sys.stderr.write(f"[compose] 字幕跳过: {e}\n"); has_sub=False
 
-# ---- Stage B+C: 主画面 + 数字人画中画 + 字幕 + BGM (一次合成) ----
-pip_h = int(H * PIPH);
-posmap = {"br": (f"W-w-40", f"H-h-40"), "bl": ("40", "H-h-40")}
+# ---- Stage B: 主画面 + 数字人画中画 + BGM (先不烧字幕) ----
+import shutil
+pip_h = int(H * PIPH)
+posmap = {"br": ("W-w-40", "H-h-40"), "bl": ("40", "H-h-40")}
 px, py = posmap.get(POS, posmap["br"])
-esub = subs.replace("\\", "/").replace(":", "\\:")
 
+comp = os.path.join(work, "composited.mp4")
 inputs = ["-i", main_bg, "-i", a.avatar]
 fc = f"[1:v]scale=-2:{pip_h},pad=iw+8:ih+8:4:4:white,setsar=1[pip];[0:v][pip]overlay={px}:{py}[comp]"
-vlast = "comp"
-if has_sub:
-    fc += f";[comp]subtitles='{esub}'[comp2]"; vlast = "comp2"
-
 use_bgm = a.bgm and os.path.exists(a.bgm)
 if use_bgm:
     inputs += ["-stream_loop","-1","-i",a.bgm]
@@ -142,9 +139,25 @@ if use_bgm:
     amap = "[aout]"
 else:
     amap = "1:a"
-
-run(["ffmpeg","-y",*inputs,"-filter_complex",fc,"-map",f"[{vlast}]","-map",amap,
+run(["ffmpeg","-y",*inputs,"-filter_complex",fc,"-map","[comp]","-map",amap,
      "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf","20","-pix_fmt","yuv420p",
-     "-c:a","aac","-shortest",a.out,"-loglevel","error"], "BC")
+     "-c:a","aac","-shortest",comp,"-loglevel","error"], "B")
+
+# ---- Stage C: 烧字幕(单独一步,相对路径,稳)。本机若无 libass 则跳过,不阻断 ----
+burned = False
+if has_sub:
+    rel = "._compose_subs.ass"
+    shutil.copy(subs, rel)
+    r = subprocess.run(["ffmpeg","-y","-i",comp,"-vf",f"subtitles={rel}","-c:a","copy",
+                        "-c:v","libx264","-preset","veryfast","-crf","20","-pix_fmt","yuv420p",
+                        a.out,"-loglevel","error"], capture_output=True, text=True)
+    try: os.remove(rel)
+    except OSError: pass
+    if r.returncode == 0 and os.path.exists(a.out):
+        burned = True
+    else:
+        sys.stderr.write("[compose] 烧字幕失败(可能本机 ffmpeg 无 libass),用无字幕版\n")
+if not burned:
+    shutil.copy(comp, a.out)
 
 print(f"\n✅ 编排成片完成 -> {a.out} ({dur(a.out):.1f}s)", flush=True)
