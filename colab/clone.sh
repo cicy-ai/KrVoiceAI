@@ -26,8 +26,9 @@ if [ ! -f .cv_deps_done ]; then
   pip install -q modelscope openai-whisper 2>&1 | tail -1 || true
   touch .cv_deps_done
 fi
-# requirements.txt 常因个别包冲突中途中断(hyperpyyaml 等没装上,还被 || true 掩盖) -> 无条件补装关键依赖(幂等,已装秒过)
-pip install -q hyperpyyaml conformer diffusers lightning wget onnxruntime 2>&1 | tail -2 || true
+# requirements.txt 常因个别包冲突中途中断(依赖被 || true 掩盖漏装) -> 无条件补装 Matcha-TTS + CosyVoice 全部关键依赖(幂等,已装秒过)
+pip install -q hyperpyyaml hydra-core hydra-colorlog omegaconf rootutils rich einops inflect unidecode \
+  conformer diffusers lightning wget onnxruntime librosa 2>&1 | tail -3 || true
 
 # ===== 2) 下 CosyVoice2 模型(只下一次) =====
 if [ ! -d pretrained_models/CosyVoice2-0.5B ]; then
