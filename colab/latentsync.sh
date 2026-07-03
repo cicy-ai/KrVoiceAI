@@ -46,17 +46,21 @@ asyncio.run(edge_tts.Communicate(sys.argv[1], "zh-CN-XiaoxiaoNeural").save("audi
 PY
 ffmpeg -y -i audio.mp3 -ar 16000 audio.wav -loglevel error
 
-# 4) 推理：先试 512 高清，OOM/失败自动降到 256
-echo "== LatentSync 出片(512高清) =="
-run() {
-  python -m scripts.inference \
-    --unet_config_path "configs/unet/$1" \
+# 4) 推理（LatentSync-1.6 是 512 模型，只能跑 512 配置；256 会出鬼脸，不降级）
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+echo "== LatentSync 出片(512 高清) =="
+if python -m scripts.inference \
+    --unet_config_path "configs/unet/stage2_512.yaml" \
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" \
     --inference_steps 20 --guidance_scale 1.5 --enable_deepcache \
     --video_path "input_video.mp4" --audio_path "audio.wav" \
-    --video_out_path "video_out.mp4"
-}
-run stage2_512.yaml || { echo "== 512 失败/OOM，降到 256 重试 =="; run stage2.yaml; }
-
-echo ""
-echo "✅ 完成 -> /content/LatentSync/video_out.mp4"
+    --video_out_path "video_out.mp4"; then
+  echo ""
+  echo "✅ 完成 -> /content/LatentSync/video_out.mp4"
+else
+  echo ""
+  echo "❌ 512 显存不足(OOM)。LatentSync-1.6 是 512 模型，T4(16GB)跑不动。"
+  echo "   → 需要 24GB 显存 GPU(L4 / A10 / 3090 / 4090)。"
+  echo "   ⚠️ 不要降到 256——512 权重套 256 结构会出鬼脸。"
+  exit 1
+fi
