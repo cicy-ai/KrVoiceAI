@@ -8,6 +8,8 @@ set -e
 WORKDIR="${WORKDIR:-$([ -d /workspace ] && echo /workspace || ([ -d /content ] && echo /content || pwd))}"
 VIDEO="${1:-$WORKDIR/input_video.mp4}"
 TEXT="${2:-大家好，欢迎观看这条由数字人生成的口播视频，效果测试。}"
+# 音色：男声 云希(默认) / 云健；女声 zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural
+VOICE="${3:-zh-CN-YunxiNeural}"
 
 if [ ! -f "$VIDEO" ]; then echo "❌ 找不到视频: $VIDEO（把视频放到 $WORKDIR/input_video.mp4，或传路径做第1个参数）"; exit 1; fi
 
@@ -41,23 +43,32 @@ fi
 
 # 3) 输入视频 + edge-tts 口播音频
 cp "$VIDEO" input_video.mp4
-python - "$TEXT" <<'PY'
+echo "== 生成音频 voice=$VOICE =="
+python - "$TEXT" "$VOICE" <<'PY'
 import sys, asyncio, edge_tts
-asyncio.run(edge_tts.Communicate(sys.argv[1], "zh-CN-XiaoxiaoNeural").save("audio.mp3"))
+asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2]).save("audio.mp3"))
 PY
 ffmpeg -y -i audio.mp3 -ar 16000 audio.wav -loglevel error
 
 # 4) 推理（LatentSync-1.6 是 512 模型，只能跑 512 配置；256 会出鬼脸，不降级）
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 echo "== LatentSync 出片(512 高清) =="
+T0=$(date +%s)
+echo "⏱ 出片开始: $(date '+%Y-%m-%d %H:%M:%S')"
 if python -m scripts.inference \
     --unet_config_path "configs/unet/stage2_512.yaml" \
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" \
     --inference_steps 20 --guidance_scale 1.5 --enable_deepcache \
     --video_path "input_video.mp4" --audio_path "audio.wav" \
     --video_out_path "video_out.mp4"; then
+  ELAPSED=$(( $(date +%s) - T0 ))
   echo ""
-  echo "✅ 完成 -> /content/LatentSync/video_out.mp4"
+  echo "✅ 完成 -> $WORKDIR/LatentSync/video_out.mp4"
+  echo "⏱ 出片结束: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "⏱ 本条出片耗时: ${ELAPSED} 秒 ($((ELAPSED/60))分$((ELAPSED%60))秒)"
+  # 视频时长，方便算"每秒视频要多久"
+  DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 video_out.mp4 2>/dev/null | cut -d. -f1)
+  [ -n "$DUR" ] && [ "$DUR" -gt 0 ] && echo "⏱ 成片 ${DUR}s，约 $(echo "scale=1;$ELAPSED/$DUR"|bc 2>/dev/null||echo '?') 秒/秒视频"
 else
   echo ""
   echo "❌ 512 显存不足(OOM)。LatentSync-1.6 是 512 模型，T4(16GB)跑不动。"
