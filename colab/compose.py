@@ -56,12 +56,15 @@ total = dur(a.avatar) or (len(assets) * 3.0)
 T = 0.6
 
 # 排镜头计划: (素材, 时长)。有分镜=按句(硬切); 否则平均分配(xfade)
+emph = []   # (start, end, 强调词) 抖音式花字
 if a.storyboard and os.path.exists(a.storyboard):
     shots = json.load(open(a.storyboard, encoding="utf-8")).get("shots", [])
     plan = [(assets[max(0, min(len(assets)-1, int(s.get("asset",0))))],
              max(0.8, float(s["end"])-float(s["start"]))) for s in shots]
+    emph = [(float(s["start"]), float(s["end"]), s["emphasis"].strip())
+            for s in shots if s.get("emphasis","").strip()]
     USE_XFADE = False
-    print(f"[compose] AI 分镜: {len(plan)} 镜头(句子切), 配音 {total:.1f}s", flush=True)
+    print(f"[compose] AI 分镜: {len(plan)} 镜头(句子切), 花字 {len(emph)} 个, 配音 {total:.1f}s", flush=True)
 else:
     n = len(assets); seg = max((total+(n-1)*T)/n, T+1.0)
     plan = [(src, seg) for src in assets]
@@ -116,17 +119,25 @@ try:
     style=(f"Style: Def,Noto Sans CJK SC,{sub.get('fontsize',16)},{sub.get('primary','&H00FFFFFF')},"
            f"{sub.get('highlight','&H0000E5FF')},&H00000000,&H96000000,{sub.get('bold',1)},0,0,0,"
            f"100,100,0,0,1,{sub.get('outline',2)},1,2,60,60,{sub.get('margin_v_compose',430)},1")
+    # 花字样式:大字号、顶部居中、粗描边(抖音综艺感)
+    pop_fs = int(sub.get('fontsize',16) * 4.2)
+    pop_col = sub.get('pop_color', sub.get('highlight','&H0000E5FF'))
+    pop_style=(f"Style: Pop,Noto Sans CJK SC,{pop_fs},{pop_col},{pop_col},"
+               f"&H50101010,&H90000000,1,0,0,0,100,100,1,0,1,5,3,8,60,60,{sub.get('pop_margin_v',360)},1")
     lines=[]
     for s in segs:
         ws=[w for w in (s.words or [])]
         if not ws: lines.append((s.start,s.end,s.text.strip())); continue
         txt="".join("{\\k%d}%s"%(max(1,int((w.end-w.start)*100)), w.word.strip()) for w in ws)
         lines.append((ws[0].start, ws[-1].end, txt))
+    pop_tag = r"{\fad(120,100)\t(0,160,\fscx124\fscy124)\t(160,320,\fscx100\fscy100)}"
     with open(subs,"w",encoding="utf-8") as f:
         f.write("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\n")
         f.write("Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n")
-        f.write(style+"\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n")
+        f.write(style+"\n"+pop_style+"\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n")
         for st,en,tx in lines: f.write(f"Dialogue: 0,{cs(st)},{cs(en)},Def,,0,0,0,,{tx}\n")
+        for st,en,word in emph:  # 强调词花字(层1,压在字幕上方)
+            f.write(f"Dialogue: 1,{cs(st)},{cs(min(en,st+2.2))},Pop,,0,0,0,,{pop_tag}{word}\n")
     has_sub=True; print(f"[compose] 字幕 {len(lines)} 句", flush=True)
 except Exception as e:
     sys.stderr.write(f"[compose] 字幕跳过: {e}\n"); has_sub=False
