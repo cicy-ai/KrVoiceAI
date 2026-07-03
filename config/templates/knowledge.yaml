@@ -1,0 +1,13 @@
+name: 知识科普
+subtitle:
+  fontsize: 15
+  primary: "&H00FFFFFF"      # 白字
+  highlight: "&H0000E5FF"    # 逐字高亮:橙黄
+  outline: 2
+  margin_v: 64
+  bold: 1
+zoompan:
+  enabled: true
+  amount: 0.06               # 缓慢推近 6%
+bgm:
+  volume: 0.12               # 轻背景乐(需提供 bgm 文件)

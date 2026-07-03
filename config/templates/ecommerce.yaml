@@ -1,0 +1,13 @@
+name: 电商带货
+subtitle:
+  fontsize: 18
+  primary: "&H0000FFFF"      # 黄字
+  highlight: "&H000000FF"    # 逐字高亮:红(冲击)
+  outline: 3
+  margin_v: 72
+  bold: 1
+zoompan:
+  enabled: true
+  amount: 0.12               # 推拉更猛
+bgm:
+  volume: 0.18               # 燃 BGM
