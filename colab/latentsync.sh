@@ -27,6 +27,9 @@ if [ ! -f .deps_done ]; then
   touch .deps_done
 fi
 
+# 修复 peft/accelerate 版本冲突(clear_device_cache)——每次确保，pip 已满足则秒过
+pip install -q -U "accelerate>=0.34" 2>&1 | tail -1 || true
+
 # 2) 模型权重（只下一次）。Colab 直连 huggingface.co 又快又稳，不走镜像
 unset HF_ENDPOINT
 if [ ! -f checkpoints/latentsync_unet.pt ]; then
