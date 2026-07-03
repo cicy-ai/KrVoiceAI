@@ -1,15 +1,17 @@
 #!/bin/bash
-# LatentSync 一键出片（Colab GPU）
-# 用法: bash colab/latentsync.sh <视频路径> [口播文案]
-# 例:   bash colab/latentsync.sh /content/VID_20260703_141258.mp4
+# LatentSync 一键出片（任意 GPU 机器：Colab / RunPod / 云 GPU 均可）
+# 用法: bash latentsync.sh <视频路径> [口播文案]
+# 例:   bash latentsync.sh /workspace/input_video.mp4
 set -e
 
-VIDEO="${1:-/content/VID_20260703_141258.mp4}"
+# 工作目录自适应：RunPod 用 /workspace，Colab 用 /content，否则当前目录
+WORKDIR="${WORKDIR:-$([ -d /workspace ] && echo /workspace || ([ -d /content ] && echo /content || pwd))}"
+VIDEO="${1:-$WORKDIR/input_video.mp4}"
 TEXT="${2:-大家好，欢迎观看这条由数字人生成的口播视频，效果测试。}"
 
-if [ ! -f "$VIDEO" ]; then echo "❌ 找不到视频: $VIDEO"; exit 1; fi
+if [ ! -f "$VIDEO" ]; then echo "❌ 找不到视频: $VIDEO（把视频放到 $WORKDIR/input_video.mp4，或传路径做第1个参数）"; exit 1; fi
 
-cd /content
+cd "$WORKDIR"
 [ -d LatentSync ] || git clone https://github.com/bytedance/LatentSync.git
 cd LatentSync
 
@@ -30,8 +32,7 @@ fi
 # 修复 peft/accelerate 版本冲突(clear_device_cache)——每次确保，pip 已满足则秒过
 pip install -q -U "accelerate>=0.34" 2>&1 | tail -1 || true
 
-# 2) 模型权重（只下一次）。Colab 直连 huggingface.co 又快又稳，不走镜像
-unset HF_ENDPOINT
+# 2) 模型权重（只下一次）。默认直连 huggingface.co；国内(阿里云)先 export HF_ENDPOINT=https://hf-mirror.com
 if [ ! -f checkpoints/latentsync_unet.pt ]; then
   echo "== 下载模型(~5GB) =="
   huggingface-cli download ByteDance/LatentSync-1.6 whisper/tiny.pt --local-dir checkpoints
