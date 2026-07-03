@@ -27,8 +27,8 @@ if [ ! -f .deps_done ]; then
   touch .deps_done
 fi
 
-# 2) 模型权重（只下一次）
-export HF_ENDPOINT=https://hf-mirror.com
+# 2) 模型权重（只下一次）。Colab 直连 huggingface.co 又快又稳，不走镜像
+unset HF_ENDPOINT
 if [ ! -f checkpoints/latentsync_unet.pt ]; then
   echo "== 下载模型(~5GB) =="
   huggingface-cli download ByteDance/LatentSync-1.6 whisper/tiny.pt --local-dir checkpoints
