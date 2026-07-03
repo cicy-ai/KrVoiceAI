@@ -43,12 +43,17 @@ fi
 
 # 3) 输入视频 + edge-tts 口播音频
 cp "$VIDEO" input_video.mp4
-echo "== 生成音频 voice=$VOICE =="
-python - "$TEXT" "$VOICE" <<'PY'
+if [ -n "$AUDIO_FILE" ] && [ -f "$AUDIO_FILE" ]; then
+  echo "== 使用外部音频(克隆音): $AUDIO_FILE =="
+  ffmpeg -y -i "$AUDIO_FILE" -ar 16000 -ac 1 audio.wav -loglevel error
+else
+  echo "== 生成音频 voice=$VOICE (edge-tts 通用音) =="
+  python - "$TEXT" "$VOICE" <<'PY'
 import sys, asyncio, edge_tts
 asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2]).save("audio.mp3"))
 PY
-ffmpeg -y -i audio.mp3 -ar 16000 audio.wav -loglevel error
+  ffmpeg -y -i audio.mp3 -ar 16000 audio.wav -loglevel error
+fi
 
 # 4) 推理（LatentSync-1.6 是 512 模型，只能跑 512 配置；256 会出鬼脸，不降级）
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
