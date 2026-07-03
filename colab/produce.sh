@@ -21,8 +21,23 @@ echo " 文案: ${TEXT:0:30}..."
 echo " 模板: $TPL"
 echo "=============="
 
-# ① 声音克隆 + ② 数字人底版（clone.sh -> $WORKDIR/LatentSync/video_out.mp4）
-bash "$REPO_DIR/colab/clone.sh" "$VIDEO" "$TEXT" "$VOICE_REF"
+# 测试兜底：没有真驱动视频时，用 repo 自带 face.jpg 造静脸测试视频 + 纯TTS(不克隆)，
+# 用于在 A100 上验证「装环境 + LatentSync 数字人 + 编排花字」全流程跑通。
+if [ ! -f "$VIDEO" ]; then
+  echo "⚠️ 驱动视频不存在: $VIDEO"
+  echo "   → 用 colab/assets/face.jpg 造测试静脸视频(纯TTS跑通，不做声音克隆)"
+  ffmpeg -y -loop 1 -i "$REPO_DIR/colab/assets/face.jpg" -t 6 -r 25 \
+    -vf "scale=512:512,format=yuv420p" -an "$WORKDIR/_testdriver.mp4" -loglevel error
+  VIDEO="$WORKDIR/_testdriver.mp4"; SKIP_CLONE=1
+fi
+
+# ① 声音 + ② 数字人底版 -> $WORKDIR/LatentSync/video_out.mp4
+if [ "${SKIP_CLONE:-0}" = "1" ]; then
+  echo "== 纯TTS(不克隆): latentsync.sh edge-tts 配音 + LatentSync 唇形同步 =="
+  bash "$REPO_DIR/colab/latentsync.sh" "$VIDEO" "$TEXT"
+else
+  bash "$REPO_DIR/colab/clone.sh" "$VIDEO" "$TEXT" "$VOICE_REF"
+fi
 BASE="$WORKDIR/LatentSync/video_out.mp4"
 [ -f "$BASE" ] || { echo "❌ 数字人底版未生成"; exit 1; }
 
