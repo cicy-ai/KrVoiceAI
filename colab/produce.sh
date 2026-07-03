@@ -9,7 +9,8 @@ VIDEO="${1:?驱动视频路径}"
 TEXT="${2:-大家好，今天分享一个实用的方法，希望对你有帮助。}"
 TPL="${3:-knowledge}"
 VOICE_REF="${4:-$VIDEO}"
-BGM="${5:-}"
+ASSETS="${5:-}"          # 商家素材(目录 或 逗号分隔)。给了就走编排成片,不给走纯口播
+BGM="${6:-}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "==== 方案 ===="
@@ -24,8 +25,18 @@ bash "$REPO_DIR/colab/clone.sh" "$VIDEO" "$TEXT" "$VOICE_REF"
 BASE="$WORKDIR/LatentSync/video_out.mp4"
 [ -f "$BASE" ] || { echo "❌ 数字人底版未生成"; exit 1; }
 
-# ③ 逐字字幕 + ④ 成片（套行业模板）
-bash "$REPO_DIR/colab/finish.sh" "$BASE" "$TPL" "$WORKDIR/final.mp4" "$BGM"
+# ③ 成片
+if [ -n "$ASSETS" ]; then
+  # 编排成片:商家素材为主画面 + 数字人画中画 + 字幕 + 运镜/转场 + BGM
+  echo "== 编排成片(商家素材 + 数字人画中画) =="
+  which fc-list >/dev/null 2>&1 && fc-list | grep -qi "Noto Sans CJK" || apt-get -qq -y install fonts-noto-cjk >/dev/null 2>&1 || true
+  pip install -q faster-whisper pyyaml 2>&1 | tail -1 || true
+  python "$REPO_DIR/colab/compose.py" --avatar "$BASE" --assets "$ASSETS" \
+    --template "$REPO_DIR/config/templates/${TPL}.yaml" --out "$WORKDIR/final.mp4" ${BGM:+--bgm "$BGM"}
+else
+  # 纯口播:数字人 + 字幕 + 运镜 + BGM
+  bash "$REPO_DIR/colab/finish.sh" "$BASE" "$TPL" "$WORKDIR/final.mp4" "$BGM"
+fi
 
 echo ""
 echo "🎬 全流程完成 -> $WORKDIR/final.mp4"

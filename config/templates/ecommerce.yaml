@@ -11,3 +11,8 @@ zoompan:
   amount: 0.12               # 推拉更猛
 bgm:
   volume: 0.18               # 燃 BGM
+pip:
+  height: 0.30
+  pos: br
+subtitle_extra:
+  margin_v_compose: 460

@@ -11,3 +11,8 @@ zoompan:
   amount: 0.06               # 缓慢推近 6%
 bgm:
   volume: 0.12               # 轻背景乐(需提供 bgm 文件)
+pip:
+  height: 0.28       # 数字人画中画高度占比
+  pos: br            # 右下角
+subtitle_extra:
+  margin_v_compose: 430
