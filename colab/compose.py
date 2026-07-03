@@ -5,7 +5,7 @@
 用法:
   python compose.py --avatar 数字人片.mp4 --assets 素材目录/ --template config/templates/knowledge.yaml --out final.mp4 [--bgm x.mp3]
 """
-import os, sys, glob, subprocess, tempfile, argparse
+import os, sys, glob, subprocess, tempfile, argparse, json
 import yaml
 
 def run(cmd, tag=""):
@@ -29,6 +29,7 @@ ap.add_argument("--assets", required=True)
 ap.add_argument("--template", required=True)
 ap.add_argument("--out", default="final.mp4")
 ap.add_argument("--bgm", default="")
+ap.add_argument("--storyboard", default="")   # AI 分镜 json;给了则按分镜排素材(句子硬切),否则平均分配
 ap.add_argument("--fps", type=int, default=30)
 ap.add_argument("--w", type=int, default=1080)
 ap.add_argument("--h", type=int, default=1920)
@@ -52,49 +53,56 @@ if not assets:
     sys.stderr.write("无商家素材\n"); raise SystemExit(2)
 
 total = dur(a.avatar) or (len(assets) * 3.0)
-T = 0.6                      # 转场时长
-n = len(assets)
-seg = (total + (n - 1) * T) / n
-seg = max(seg, T + 1.0)
-print(f"[compose] 素材 {n} 个, 配音 {total:.1f}s, 每段 {seg:.1f}s, 转场 {T}s", flush=True)
+T = 0.6
 
-# ---- Stage A: 每素材 -> 标准片段(seg秒 / WxH / FPS, 图片带运镜) ----
-clips = []
-for i, src in enumerate(assets):
+# 排镜头计划: (素材, 时长)。有分镜=按句(硬切); 否则平均分配(xfade)
+if a.storyboard and os.path.exists(a.storyboard):
+    shots = json.load(open(a.storyboard, encoding="utf-8")).get("shots", [])
+    plan = [(assets[max(0, min(len(assets)-1, int(s.get("asset",0))))],
+             max(0.8, float(s["end"])-float(s["start"]))) for s in shots]
+    USE_XFADE = False
+    print(f"[compose] AI 分镜: {len(plan)} 镜头(句子切), 配音 {total:.1f}s", flush=True)
+else:
+    n = len(assets); seg = max((total+(n-1)*T)/n, T+1.0)
+    plan = [(src, seg) for src in assets]
+    USE_XFADE = True
+    print(f"[compose] 平均分配: {n} 素材×{seg:.1f}s, 转场 {T}s", flush=True)
+
+def make_clip(i, src, d):
     out = os.path.join(work, f"c{i}.mp4")
     if is_vid(src):
         vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},setsar=1"
-        run(["ffmpeg","-y","-t",f"{seg:.3f}","-i",src,"-an","-vf",vf,"-r",str(FPS),
-             "-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p","-t",f"{seg:.3f}",out,
-             "-loglevel","error"], f"A-vid{i}")
+        run(["ffmpeg","-y","-t",f"{d:.3f}","-i",src,"-an","-vf",vf,"-r",str(FPS),
+             "-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p","-t",f"{d:.3f}",out,"-loglevel","error"], f"A-vid{i}")
     else:
-        frames = max(2, int(seg * FPS))
-        incr = ZAMT / frames if ZEN else 0
-        cap = 1 + (ZAMT if ZEN else 0)
+        frames = max(2, int(d*FPS)); incr = ZAMT/frames if ZEN else 0; cap = 1+(ZAMT if ZEN else 0)
+        # -loop 1 -t d 提供 frames 帧, zoompan d=1(每输入帧出1帧), 否则 frames×frames 时长爆炸
         vf = (f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-              f"zoompan=z='min(zoom+{incr:.6f},{cap})':d={frames}:"
+              f"zoompan=z='min(zoom+{incr:.6f},{cap})':d=1:"
               f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS},setsar=1")
-        run(["ffmpeg","-y","-loop","1","-t",f"{seg:.3f}","-i",src,"-vf",vf,"-r",str(FPS),
+        run(["ffmpeg","-y","-loop","1","-t",f"{d:.3f}","-i",src,"-vf",vf,"-r",str(FPS),
              "-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p",out,"-loglevel","error"], f"A-img{i}")
-    clips.append(out)
+    return out
 
-# ---- Stage A2: xfade 转场拼成主画面 ----
+clips = [make_clip(i, src, d) for i,(src,d) in enumerate(plan)]
+
+# ---- 拼主画面 ----
 main_bg = os.path.join(work, "main_bg.mp4")
-if n == 1:
+if len(clips) == 1:
     run(["ffmpeg","-y","-i",clips[0],"-c","copy",main_bg,"-loglevel","error"], "A2-single")
-else:
+elif USE_XFADE:
+    seg_v = plan[0][1]
     ins = []
     for c in clips: ins += ["-i", c]
     fc, prev = "", "0:v"
-    for i in range(1, n):
-        off = i * (seg - T)
-        lbl = f"v{i}"
-        fc += f"[{prev}][{i}:v]xfade=transition=fade:duration={T}:offset={off:.3f}[{lbl}];"
-        prev = lbl
-    fc = fc.rstrip(";")
-    run(["ffmpeg","-y",*ins,"-filter_complex",fc,"-map",f"[{prev}]",
-         "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p",
-         main_bg,"-loglevel","error"], "A2-xfade")
+    for i in range(1, len(clips)):
+        fc += f"[{prev}][{i}:v]xfade=transition=fade:duration={T}:offset={i*(seg_v-T):.3f}[v{i}];"; prev=f"v{i}"
+    run(["ffmpeg","-y",*ins,"-filter_complex",fc.rstrip(";"),"-map",f"[{prev}]",
+         "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p",main_bg,"-loglevel","error"], "A2-xfade")
+else:
+    lst = os.path.join(work, "list.txt")
+    open(lst,"w").write("".join(f"file '{c}'\n" for c in clips))
+    run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",main_bg,"-loglevel","error"], "A2-concat")
 
 # ---- 字幕: whisper 逐字 -> 卡拉OK ASS ----
 subs = os.path.join(work, "subs.ass")

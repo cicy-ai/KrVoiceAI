@@ -11,6 +11,7 @@ TPL="${3:-knowledge}"
 VOICE_REF="${4:-$VIDEO}"
 ASSETS="${5:-}"          # 商家素材(目录 或 逗号分隔)。给了就走编排成片,不给走纯口播
 BGM="${6:-}"
+DESC="${7:-}"            # 素材描述(逗号分隔,和素材顺序对应),给了 AI 分镜能语义匹配
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "==== 方案 ===="
@@ -28,11 +29,16 @@ BASE="$WORKDIR/LatentSync/video_out.mp4"
 # ③ 成片
 if [ -n "$ASSETS" ]; then
   # 编排成片:商家素材为主画面 + 数字人画中画 + 字幕 + 运镜/转场 + BGM
-  echo "== 编排成片(商家素材 + 数字人画中画) =="
+  echo "== 编排成片(商家素材 + 数字人画中画 + AI 智能分镜) =="
   which fc-list >/dev/null 2>&1 && fc-list | grep -qi "Noto Sans CJK" || apt-get -qq -y install fonts-noto-cjk >/dev/null 2>&1 || true
-  pip install -q faster-whisper pyyaml 2>&1 | tail -1 || true
+  pip install -q faster-whisper pyyaml httpx 2>&1 | tail -1 || true
+  # ③a AI 智能分镜:哪句配哪张素材 + 强调词(LLM;失败降级一句一镜轮询)
+  python "$REPO_DIR/colab/storyboard.py" --audio "$BASE" --assets "$ASSETS" \
+    --out "$WORKDIR/storyboard.json" ${DESC:+--desc "$DESC"} || true
+  # ③b 按分镜编排成片
+  SB=""; [ -f "$WORKDIR/storyboard.json" ] && SB="--storyboard $WORKDIR/storyboard.json"
   python "$REPO_DIR/colab/compose.py" --avatar "$BASE" --assets "$ASSETS" \
-    --template "$REPO_DIR/config/templates/${TPL}.yaml" --out "$WORKDIR/final.mp4" ${BGM:+--bgm "$BGM"}
+    --template "$REPO_DIR/config/templates/${TPL}.yaml" --out "$WORKDIR/final.mp4" $SB ${BGM:+--bgm "$BGM"}
 else
   # 纯口播:数字人 + 字幕 + 运镜 + BGM
   bash "$REPO_DIR/colab/finish.sh" "$BASE" "$TPL" "$WORKDIR/final.mp4" "$BGM"
