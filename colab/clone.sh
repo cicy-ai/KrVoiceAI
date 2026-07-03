@@ -26,6 +26,8 @@ if [ ! -f .cv_deps_done ]; then
   pip install -q modelscope openai-whisper 2>&1 | tail -1 || true
   touch .cv_deps_done
 fi
+# requirements.txt 常因个别包冲突中途中断(hyperpyyaml 等没装上,还被 || true 掩盖) -> 无条件补装关键依赖(幂等,已装秒过)
+pip install -q hyperpyyaml conformer diffusers lightning wget onnxruntime 2>&1 | tail -2 || true
 
 # ===== 2) 下 CosyVoice2 模型(只下一次) =====
 if [ ! -d pretrained_models/CosyVoice2-0.5B ]; then
