@@ -30,6 +30,9 @@ fi
 pip install -q hyperpyyaml hydra-core hydra-colorlog omegaconf rootutils rich einops inflect unidecode \
   conformer diffusers lightning wget onnxruntime librosa \
   pyworld soundfile matplotlib gdown pydub wetext 2>&1 | tail -3 || true
+# onnxruntime-gpu 新版要 libcudart.so.13(CUDA13),Colab 是 CUDA12 -> 强制用 CPU 版(只做 prompt 分词,足够快)
+pip uninstall -y -q onnxruntime-gpu 2>/dev/null || true
+pip install -q "onnxruntime==1.18.1" 2>&1 | tail -1 || true
 # Colab 默认 torch/torchaudio 2.9 把 load 全路由给 torchcodec,CosyVoice 不兼容(video_tensor must be kUInt8)
 # -> 钉 2.5.1 全家桶(LatentSync 也要求 2.5.1,两模型统一环境)。已是 2.5.1 则秒过
 python -c "import torch;exit(0 if torch.__version__.startswith('2.5') else 1)" 2>/dev/null || {
