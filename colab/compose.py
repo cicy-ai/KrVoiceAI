@@ -116,11 +116,13 @@ try:
     segs, _ = model.transcribe(a.avatar, language="zh", word_timestamps=True)
     def cs(t):
         h=int(t//3600); m=int(t%3600//60); s=t%60; return f"{h}:{m:02d}:{s:05.2f}"
-    style=(f"Style: Def,Noto Sans CJK SC,{sub.get('fontsize',16)},{sub.get('primary','&H00FFFFFF')},"
+    # 模板字号是小分辨率习惯值,ASS PlayRes 是 1080x1920 -> 放大 4.5 倍(16->72px 可读)
+    def_fs = int(sub.get('fontsize',16) * 4.5)
+    style=(f"Style: Def,Noto Sans CJK SC,{def_fs},{sub.get('primary','&H00FFFFFF')},"
            f"{sub.get('highlight','&H0000E5FF')},&H00000000,&H96000000,{sub.get('bold',1)},0,0,0,"
-           f"100,100,0,0,1,{sub.get('outline',2)},1,2,60,60,{sub.get('margin_v_compose',430)},1")
+           f"100,100,0,0,1,{max(3,int(sub.get('outline',2))*2)},1,2,60,60,{sub.get('margin_v_compose',430)},1")
     # 花字样式:大字号、顶部居中、粗描边(抖音综艺感)
-    pop_fs = int(sub.get('fontsize',16) * 4.2)
+    pop_fs = int(sub.get('fontsize',16) * 8)
     pop_col = sub.get('pop_color', sub.get('highlight','&H0000E5FF'))
     pop_style=(f"Style: Pop,Noto Sans CJK SC,{pop_fs},{pop_col},{pop_col},"
                f"&H50101010,&H90000000,1,0,0,0,100,100,1,0,1,5,3,8,60,60,{sub.get('pop_margin_v',360)},1")
