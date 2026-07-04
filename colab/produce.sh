@@ -81,8 +81,19 @@ fi
 echo ""
 echo "🎬 全流程完成 -> $WORKDIR/final.mp4"
 
-# ⑤ 发布(Colab 环境):公网直链 + Drive 公开链接 + 邮件通知
-if [ -d /content ]; then
+# ⑤ 发布(Colab 环境):公网直链 + Drive 公开链接 + 邮件通知(worker 队列模式下 NO_PUBLISH=1 跳过)
+if [ -d /content ] && [ "${NO_PUBLISH:-0}" != "1" ]; then
   bash "$REPO_DIR/colab/publish.sh" "$WORKDIR/final.mp4" || true
   python "$REPO_DIR/colab/share_public.py" "$WORKDIR/final.mp4" "cicybot@qq.com" || true
+fi
+
+# ⑥ 常驻任务队列 worker(公网 API 拉任务出片)。幂等:已在跑就跳过
+if [ -d /content ] && [ "${WORKER_AUTOSTART:-1}" = "1" ]; then
+  if ! pgrep -f "colab/worker.py" >/dev/null 2>&1; then
+    pip install -q flask 2>&1 | tail -1 || true
+    nohup python "$REPO_DIR/colab/worker.py" > /content/worker.log 2>&1 &
+    echo "== 队列 worker 已启动,公网地址稍后见 /content/worker.log(约30秒) =="
+    sleep 35
+  fi
+  grep -o "任务队列 API: https://[^ ]*" /content/worker.log 2>/dev/null | tail -1 || true
 fi
