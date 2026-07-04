@@ -62,3 +62,9 @@ fi
 
 echo ""
 echo "🎬 全流程完成 -> $WORKDIR/final.mp4"
+
+# ⑤ 发布(Colab 环境):公网直链 + Drive 公开链接 + 邮件通知
+if [ -d /content ]; then
+  bash "$REPO_DIR/colab/publish.sh" "$WORKDIR/final.mp4" || true
+  python "$REPO_DIR/colab/share_public.py" "$WORKDIR/final.mp4" "cicybot@qq.com" || true
+fi
