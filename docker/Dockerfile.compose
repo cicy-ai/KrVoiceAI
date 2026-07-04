@@ -1,0 +1,26 @@
+# 编排层镜像(纯 CPU):AI 分镜 + 字幕 + 花字 + 编排成片 + TTS
+# 关键:Debian 的 ffmpeg 自带 libass/libfreetype —— 能真烧 ASS 花字/卡拉OK字幕,
+# 彻底告别 Mac brew ffmpeg 缺 libass、torch wheel 不兼容、venv symlink 那堆坑。
+# 一个镜像,Mac / Windows / Linux / 云 通吃。
+FROM python:3.11-slim
+
+# 系统依赖:ffmpeg(含 libass+drawtext)、中文/emoji 字体
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg fonts-noto-cjk fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python 依赖(编排层极简:faster-whisper 用 ctranslate2,不需要 torch/CUDA)
+RUN pip install --no-cache-dir \
+        faster-whisper \
+        pyyaml \
+        httpx \
+        edge-tts
+
+COPY colab/  /app/colab/
+COPY config/ /app/config/
+
+# 默认跑编排;也可覆盖 CMD 跑 storyboard.py / finish.sh
+ENTRYPOINT ["python"]
+CMD ["colab/compose.py", "--help"]

@@ -1,94 +1,58 @@
-# KrVoiceAI 云端 GPU 镜像
-#
-# 用途：在云 GPU 实例上运行 TTS / 数字人推理服务
-# 包含 PyTorch + GPT-SoVITS + MuseTalk + FunASR
-#
-# 构建：
-#   docker build -f docker/Dockerfile.gpu -t krvoiceai:gpu .
-#
-# 运行（需要 NVIDIA Container Toolkit）：
-#   docker run --gpus all -it --rm \
-#     -p 9880:9880 -p 8010:8010 \
-#     -v $(pwd)/models:/app/models \
-#     -v $(pwd)/config:/app/config \
-#     krvoiceai:gpu
+# KrVoice GPU 镜像:CosyVoice2 声音克隆 + LatentSync 512 唇形同步 + 编排全链
+# 固化 2026-07-04 Colab 实战踩平的所有坑:
+#   - torch 钉 2.5.1(torchaudio 2.9 torchcodec 路由与 CosyVoice 不兼容;LatentSync 同版)→ 直接用官方 2.5.1 基镜像
+#   - onnxruntime 用 CPU 1.18.1(gpu 新版要 libcudart.so.13/CUDA13)
+#   - mediapipe/decord/insightface 去钉版(老钉版无新 py wheel)
+#   - accelerate>=0.34(peft clear_device_cache)
+#   - CosyVoice requirements 装不全 → 无条件补装关键依赖清单
+# 权重不打进镜像(~5GB),运行时外挂卷: -v krvoice-models:/models(entrypoint 自动下载一次)
+# 用法:
+#   docker run --gpus all -v krvoice-models:/models -v $PWD/data:/data \
+#     cicybot/krvoice-gpu bash /opt/KrVoiceAI/colab/produce.sh /data/driver.mp4 "文案" ecommerce /data/voice.m4a /data/assets
 
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
 
-# 避免交互
-ENV DEBIAN_FRONTEND=noninteractive
-
-# 系统依赖
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 \
+    WORKDIR=/opt PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    ffmpeg \
-    libsndfile1 \
-    libgl1 \
-    libglib2.0-0 \
-    git \
-    wget \
-    curl \
-    python3.10 \
-    python3.10-venv \
-    python3-pip \
+        git ffmpeg libgl1 libglib2.0-0 wget bc fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置 Python 3.10 为默认
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
-    update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+WORKDIR /opt
 
-WORKDIR /app
+# ---- LatentSync(踩坑修复 + 去 torch 钉版保住基镜像 2.5.1) ----
+RUN git clone --depth 1 https://github.com/bytedance/LatentSync.git && cd LatentSync && \
+    sed -i 's/^mediapipe==.*/mediapipe/'            requirements.txt && \
+    sed -i 's/^decord==.*/eva-decord/'              requirements.txt && \
+    sed -i 's/^insightface==.*/insightface/'        requirements.txt && \
+    sed -i '/^onnxruntime/d;/^torch==/d;/^torchvision==/d;/^torchaudio==/d' requirements.txt && \
+    pip install -r requirements.txt && \
+    pip install edge-tts "accelerate>=0.34" "huggingface_hub[cli]" && \
+    touch .deps_done
 
-# 安装 PyTorch (CUDA 12.1)
-RUN pip install --no-cache-dir torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 \
-    --index-url https://download.pytorch.org/whl/cu121
+# ---- CosyVoice2(requirements 尽力装 + 无条件补装今天验证过的清单) ----
+RUN git clone --depth 1 --recursive https://github.com/FunAudioLLM/CosyVoice.git && cd CosyVoice && \
+    sed -i '/^torch==/d;/^torchvision==/d;/^torchaudio==/d;/^onnxruntime/d;/^deepspeed/d' requirements.txt && \
+    (pip install -r requirements.txt || true) && \
+    pip install modelscope openai-whisper \
+        hyperpyyaml hydra-core hydra-colorlog omegaconf rootutils rich einops inflect unidecode \
+        conformer diffusers lightning wget pyworld soundfile matplotlib gdown pydub wetext && \
+    touch .cv_deps_done
 
-# 复制项目文件并安装 KrVoiceAI
-COPY pyproject.toml ./
-COPY krvoiceai/ ./krvoiceai/
-COPY config/ ./config/
+# ---- onnxruntime 统一 CPU 1.18.1(最后装,防被前面覆盖;只做分词/人脸检测,CPU 够) ----
+RUN pip uninstall -y onnxruntime-gpu onnxruntime 2>/dev/null; pip install "onnxruntime==1.18.1"
 
-RUN pip install --no-cache-dir \
-    fastapi==0.111.0 \
-    uvicorn[standard]==0.30.1 \
-    pydantic==2.7.1 \
-    httpx==0.27.0 \
-    loguru==0.7.2 \
-    Pillow==10.3.0 \
-    numpy==1.26.4 \
-    soundfile==0.12.1 \
-    funasr==1.0.27 \
-    modelscope==1.11.0
+# ---- 编排层依赖 + 项目脚本 ----
+RUN pip install faster-whisper pyyaml httpx
+COPY colab/  /opt/KrVoiceAI/colab/
+COPY config/ /opt/KrVoiceAI/config/
+COPY docker/entrypoint-gpu.sh /opt/entrypoint.sh
+RUN chmod +x /opt/entrypoint.sh /opt/KrVoiceAI/colab/*.sh
 
-# 安装 GPT-SoVITS（克隆并安装依赖）
-RUN git clone https://github.com/RVC-Boss/GPT-SoVITS.git /opt/GPT-SoVITS && \
-    cd /opt/GPT-SoVITS && \
-    pip install --no-cache-dir -r requirements.txt || true
+# 构建期校验两大模型能 import(缺包当场暴露,不留到运行时)
+RUN cd /opt/CosyVoice && python -c "import sys; sys.path.append('third_party/Matcha-TTS'); from cosyvoice.cli.cosyvoice import CosyVoice2; print('CosyVoice import OK')"
+RUN cd /opt/LatentSync && python -c "from scripts import inference; print('LatentSync import OK')" || \
+    echo "LatentSync import 跳过(部分依赖运行时才就绪)"
 
-# 安装 MuseTalk
-RUN git clone https://github.com/TMElyralab/MuseTalk.git /opt/MuseTalk && \
-    cd /opt/MuseTalk && \
-    pip install --no-cache-dir -r requirements.txt || true
-
-# 创建工作目录
-RUN mkdir -p /app/workspace_data/logs /app/workspace_data/tmp \
-    /app/config/avatars /app/config/voices \
-    /app/models
-
-# 环境变量
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app:/opt/GPT-SoVITS:/opt/MuseTalk \
-    VOICES_DIR=/app/config/voices \
-    AVATARS_DIR=/app/config/avatars \
-    MODELS_DIR=/app/models
-
-# 暴露端口
-# 9880: TTS 服务
-# 8010: 数字人服务
-EXPOSE 9880 8010
-
-# 启动脚本（同时启动 TTS 和数字人服务）
-COPY docker/entrypoint.gpu.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-CMD ["/entrypoint.sh"]
+ENTRYPOINT ["/opt/entrypoint.sh"]
+CMD ["bash"]

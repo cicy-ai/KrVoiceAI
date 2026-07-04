@@ -1,0 +1,13 @@
+.venv/
+.git/
+__pycache__/
+**/__pycache__/
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.pt
+*.pth
+*.onnx
+outputs/
+workspace/
