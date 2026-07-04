@@ -36,7 +36,11 @@ if [ "${SKIP_CLONE:-0}" = "1" ]; then
   echo "== 纯TTS(不克隆): latentsync.sh edge-tts 配音 + LatentSync 唇形同步 =="
   bash "$REPO_DIR/colab/latentsync.sh" "$VIDEO" "$TEXT"
 else
-  bash "$REPO_DIR/colab/clone.sh" "$VIDEO" "$TEXT" "$VOICE_REF"
+  # 克隆失败不阻断主线:自动降级 edge-tts 纯TTS(克隆是加分项,数字人+编排才是主体)
+  if ! bash "$REPO_DIR/colab/clone.sh" "$VIDEO" "$TEXT" "$VOICE_REF"; then
+    echo "⚠️ 声音克隆失败,降级 edge-tts 纯TTS 继续出片"
+    bash "$REPO_DIR/colab/latentsync.sh" "$VIDEO" "$TEXT"
+  fi
 fi
 BASE="$WORKDIR/LatentSync/video_out.mp4"
 [ -f "$BASE" ] || { echo "❌ 数字人底版未生成"; exit 1; }
