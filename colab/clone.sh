@@ -56,6 +56,13 @@ print(m.transcribe(sys.argv[1], language="zh")["text"].strip())
 PY
 )
 echo "参考文本: $REF_TEXT"
+# 校验参考音里真的有人在说话(不说话的驱动视频只有环境噪音,克隆不了)
+if [ ${#REF_TEXT} -lt 6 ]; then
+  echo "❌ 参考音里几乎没有人声(转写只有 ${#REF_TEXT} 字)。"
+  echo "   驱动视频是不说话的,请单独提供一段你说话的声音样本(10-30秒),"
+  echo "   作为 produce.sh 第4参(声音参考)传入。"
+  exit 3
+fi
 
 # ===== 4) CosyVoice2 零样本克隆：用他的声音念新文案 =====
 echo "== CosyVoice2 克隆合成 =="
