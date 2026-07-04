@@ -66,8 +66,13 @@ from cosyvoice.cli.cosyvoice import CosyVoice2
 from cosyvoice.utils.file_utils import load_wav
 tgt, ref_text, ref_wav, out = sys.argv[1:5]
 cv = CosyVoice2('pretrained_models/CosyVoice2-0.5B', load_jit=False, load_trt=False, fp16=False)
-prompt = load_wav(ref_wav, 16000)
-segs = [j['tts_speech'] for j in cv.inference_zero_shot(tgt, ref_text, prompt, stream=False)]
+# CosyVoice HEAD 的 inference_zero_shot 内部自己 load_wav(要路径);旧版要预载 tensor。先路径,失败退 tensor
+try:
+    segs = [j['tts_speech'] for j in cv.inference_zero_shot(tgt, ref_text, ref_wav, stream=False)]
+except Exception as e:
+    print("路径式失败(%s),退回 tensor 式" % type(e).__name__)
+    prompt = load_wav(ref_wav, 16000)
+    segs = [j['tts_speech'] for j in cv.inference_zero_shot(tgt, ref_text, prompt, stream=False)]
 torchaudio.save(out, torch.cat(segs, dim=1), cv.sample_rate)
 print("克隆音频 ->", out)
 PY
