@@ -42,6 +42,24 @@ fi
 BASE="$WORKDIR/LatentSync/video_out.mp4"
 [ -f "$BASE" ] || { echo "❌ 数字人底版未生成"; exit 1; }
 
+# BGM 自动选择: 显式参数 > Drive latentsync/bgm.* > 自动下载免费欢快曲(CC-BY Kevin MacLeod)
+if [ -z "$BGM" ] && [ -d /content ]; then
+  DBGM=$(ls /content/drive/MyDrive/latentsync/bgm.* 2>/dev/null | head -1)
+  if [ -n "$DBGM" ]; then
+    BGM="$DBGM"; echo "== BGM: 用你 Drive 里的 $(basename "$DBGM") =="
+  else
+    if [ ! -s /content/bgm_default.mp3 ]; then
+      for u in "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Cheery%20Monday.mp3" \
+               "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Life%20of%20Riley.mp3" \
+               "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Wholesome.mp3"; do
+        wget -q -T 30 -O /content/bgm_default.mp3 "$u" && [ "$(stat -c%s /content/bgm_default.mp3 2>/dev/null || echo 0)" -gt 200000 ] && break
+        rm -f /content/bgm_default.mp3
+      done
+    fi
+    [ -s /content/bgm_default.mp3 ] && { BGM=/content/bgm_default.mp3; echo "== BGM: 默认欢快曲(想换就往 Drive latentsync/ 放 bgm.mp3) =="; }
+  fi
+fi
+
 # ③ 成片
 if [ -n "$ASSETS" ]; then
   # 编排成片:商家素材为主画面 + 数字人画中画 + 字幕 + 运镜/转场 + BGM
