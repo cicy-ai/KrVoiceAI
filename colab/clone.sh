@@ -29,7 +29,13 @@ fi
 # requirements.txt 常因个别包冲突中途中断(依赖被 || true 掩盖漏装) -> 无条件补装 Matcha-TTS + CosyVoice 全部关键依赖(幂等,已装秒过)
 pip install -q hyperpyyaml hydra-core hydra-colorlog omegaconf rootutils rich einops inflect unidecode \
   conformer diffusers lightning wget onnxruntime librosa \
-  pyworld soundfile matplotlib gdown pydub wetext torchcodec 2>&1 | tail -3 || true
+  pyworld soundfile matplotlib gdown pydub wetext 2>&1 | tail -3 || true
+# Colab 默认 torch/torchaudio 2.9 把 load 全路由给 torchcodec,CosyVoice 不兼容(video_tensor must be kUInt8)
+# -> 钉 2.5.1 全家桶(LatentSync 也要求 2.5.1,两模型统一环境)。已是 2.5.1 则秒过
+python -c "import torch;exit(0 if torch.__version__.startswith('2.5') else 1)" 2>/dev/null || {
+  echo "== 降 torch 2.5.1(约3-5分钟) =="
+  pip install -q torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 2>&1 | tail -2
+}
 
 # ===== 2) 下 CosyVoice2 模型(只下一次) =====
 if [ ! -d pretrained_models/CosyVoice2-0.5B ]; then
