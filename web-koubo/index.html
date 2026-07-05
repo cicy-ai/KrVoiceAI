@@ -135,12 +135,8 @@
     .cta{flex:1}
     .main{padding:20px 18px 160px}
   }
-  .cog{position:fixed;top:16px;right:18px;z-index:30;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;display:grid;place-items:center;box-shadow:var(--shadow)}
-  .cog:hover{color:var(--accent);border-color:var(--accent)}
   .verr{background:#FDECEC;color:#C0392B;border:1px solid #F5C6C6;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5;word-break:break-word;max-height:180px;overflow:auto}
 </style></head><body>
-
-<button class="cog" id="cog" title="Worker 设置"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
 <div class="app">
   <aside class="side">
@@ -305,14 +301,7 @@
     go.disabled=!ok;
     document.getElementById('etas').textContent = picks.txt>120?'~3':'~2';
   }
-  // ---- Worker 地址配置(localStorage) ----
-  function getWorker(){ return (localStorage.getItem('krvoice_worker_url')||'').trim().replace(/\/+$/,''); }
-  function editWorker(){
-    var v=prompt('填入 Worker 公网地址\n(Colab worker.log 里「任务队列 API」那条,形如 https://xxx.trycloudflare.com)', getWorker());
-    if(v!==null){ localStorage.setItem('krvoice_worker_url', v.trim().replace(/\/+$/,'')); }
-    return getWorker();
-  }
-  document.getElementById('cog').addEventListener('click',editWorker);
+  // ---- 队列同源:前端和队列中心(server.py)同域,直接打相对路径,无需配任何地址 ----
 
   // ---- 前端模板中文名 -> 后端 tpl 值 ----
   var TPL_MAP={'知识科普':'knowledge','电商带货':'ecommerce','餐饮探店':'ecommerce','财经职场':'ecommerce'};
@@ -338,16 +327,16 @@
   function showError(msg){
     if(poller){ clearInterval(poller); poller=null; }
     flow.style.display='none';
-    ovh.textContent='生成失败'; ovs.textContent='任务没能出片,可重试或检查 Worker';
+    ovh.textContent='生成失败'; ovs.textContent='任务没能出片,请稍后重试';
     vwrap.innerHTML='<div class="verr" id="errbox"></div><div class="dl"><button id="again" class="prim">知道了</button></div>';
     document.getElementById('errbox').textContent=String(msg||'未知错误');
     vwrap.classList.add('show');
     document.getElementById('again').onclick=closeOverlay;
   }
-  function showVideo(url, W){
+  function showVideo(url){
     if(poller){ clearInterval(poller); poller=null; }
     paintSteps(0, true);
-    var src=(/^https?:\/\//.test(url)? url : (W + (url.charAt(0)==='/'?'':'/') + url));
+    var src=url;  // 同源:后端返回 /pub/<id>.mp4 相对路径,直接用
     flow.style.display='none';
     ovh.textContent='生成完成 🎉';
     ovs.innerHTML='「'+picks.tpl+'」风格 · 1080×1920 高清';
@@ -361,12 +350,12 @@
     document.getElementById('again').onclick=closeOverlay;
   }
 
-  function pollJob(W, id){
+  function pollJob(id){
     curStep=0;
     poller=setInterval(function(){
-      fetch(W+'/jobs/'+id).then(function(r){return r.json();}).then(function(j){
+      fetch('/jobs/'+id).then(function(r){return r.json();}).then(function(j){
         if(!j || j.status==='failed'){ showError((j&&(j.error||('出片失败 rc='+(j.rc!=null?j.rc:'?'))))||'任务失败'); return; }
-        if(j.status==='done'){ if(j.url) showVideo(j.url, W); else showError('已完成但未拿到成片链接'); return; }
+        if(j.status==='done'){ if(j.url) showVideo(j.url); else showError('已完成但未拿到成片链接'); return; }
         // queued / running:进度条随真实 running 往前推,末步留到 done 才打勾
         if(j.status==='running' && curStep<steps.length-1){ curStep++; }
         paintSteps(curStep, false);
@@ -375,8 +364,6 @@
   }
 
   go.addEventListener('click',function(){
-    var W=getWorker();
-    if(!W){ alert('请先在右上角 ⚙ 设置里填 Worker 地址'); editWorker(); return; }
     document.getElementById('ovmeta').textContent=picks.ava+' · '+picks.voice+' · '+picks.tpl;
     // 复位弹窗到「进度」态
     vwrap.classList.remove('show'); vwrap.innerHTML='';
@@ -386,13 +373,13 @@
     curStep=0; paintSteps(0, false);
     ov.classList.add('show'); go.disabled=true;
     var body={ text: ta.value.trim(), tpl: (TPL_MAP[picks.tpl]||'ecommerce'), avatar: picks.ava, voice: picks.voice };
-    fetch(W+'/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    fetch('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(!d || !d.id){ throw new Error((d&&d.error)||'提交失败,请检查 Worker 地址'); }
-        pollJob(W, d.id);
+        if(!d || !d.id){ throw new Error((d&&d.error)||'提交失败,请稍后重试'); }
+        pollJob(d.id);
       })
-      .catch(function(e){ showError((e&&e.message)||('无法连接 Worker: '+W)); });
+      .catch(function(e){ showError((e&&e.message)||'无法连接队列服务,请稍后重试'); });
   });
 
   ov.addEventListener('click',function(e){ if(e.target===ov) closeOverlay(); });

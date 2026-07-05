@@ -88,13 +88,15 @@ if [ -d /content ] && [ "${NO_PUBLISH:-0}" != "1" ]; then
   python "$REPO_DIR/colab/share_public.py" "$WORKDIR/final.mp4" "cicybot@qq.com" || true
 fi
 
-# ⑥ 常驻任务队列 worker(公网 API 拉任务出片)。幂等:已在跑就跳过
-if [ -d /content ] && [ "${WORKER_AUTOSTART:-1}" = "1" ]; then
-  if ! pgrep -f "colab/worker.py" >/dev/null 2>&1; then
-    pip install -q flask 2>&1 | tail -1 || true
-    nohup python "$REPO_DIR/colab/worker.py" > /content/worker.log 2>&1 &
-    echo "== 队列 worker 已启动,公网地址稍后见 /content/worker.log(约30秒) =="
-    sleep 35
+# ⑥ 新架构:队列中心在 cloudshell(server.py),Colab 只当拉取式 worker(pull_worker.py)。
+#    默认不自拉 worker —— pull_worker.py 由使用者在 Colab 手动/notebook 里起(设 QUEUE_URL)。
+#    需要出片后顺手拉起拉取式 worker,设 WORKER_AUTOSTART=1(幂等:已在跑就跳过)。
+#    注意:旧的 colab/worker.py(队列+worker 合一)已被 server.py + pull_worker.py 取代,不再自拉。
+if [ -d /content ] && [ "${WORKER_AUTOSTART:-0}" = "1" ]; then
+  if ! pgrep -f "colab/pull_worker.py" >/dev/null 2>&1; then
+    pip install -q requests 2>&1 | tail -1 || true
+    QUEUE_URL="${QUEUE_URL:-https://krvoice.cicy-ai.com}" \
+      nohup python "$REPO_DIR/colab/pull_worker.py" > /content/pull_worker.log 2>&1 &
+    echo "== 拉取式 worker 已启动 -> ${QUEUE_URL:-https://krvoice.cicy-ai.com}(日志 /content/pull_worker.log) =="
   fi
-  grep -o "任务队列 API: https://[^ ]*" /content/worker.log 2>/dev/null | tail -1 || true
 fi

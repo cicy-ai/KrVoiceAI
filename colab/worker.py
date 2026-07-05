@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Colab GPU 常驻 worker:任务队列 + 公网 API,拉任务跑 produce.sh 出片。
-由 produce.sh 末尾自动拉起(幂等)。API 经 cicy-cft/cloudflared 隧道暴露公网。
+"""⚠️ 旧版「队列+worker 合一」模式,已被 web-koubo/server.py(中心队列,cloudshell)
+   + colab/pull_worker.py(拉取式 worker,Colab)取代,保留仅作参考,新部署请勿使用。
+
+Colab GPU 常驻 worker:任务队列 + 公网 API,拉任务跑 produce.sh 出片。
+API 经 cicy-cft/cloudflared 隧道暴露公网。
 
 API(基地址看 produce.log 里的「任务队列 API」):
   GET  /            队列状态(json)
