@@ -1,0 +1,329 @@
+<!doctype html><html><head>
+<meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>口播工坊 · 新建口播视频</title>
+<style>
+  :root{
+    --ground:#F4F5F7; --panel:#FFFFFF; --ink:#181A1F; --ink-2:#5C616B;
+    --line:#E6E8EC;
+    --accent:#F1502F; --accent-ink:#C63B1E; --accent-soft:#FDEDE8;
+    --nav:#1B1D24; --nav-2:#9A9DA8; --nav-line:#2A2D36;
+    --good:#0E9F6E; --good-soft:#E4F5EE;
+    --shadow:0 1px 2px rgba(20,22,28,.04),0 8px 24px rgba(20,22,28,.06);
+    --r:14px;
+    --font:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ground);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.5}
+  .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+
+  .side{background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 14px}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 22px}
+  .brand .mk{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#FF8A3D);display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px}
+  .brand b{font-size:15.5px;letter-spacing:.5px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;color:var(--nav-2);text-decoration:none;font-size:14px;font-weight:500}
+  .nav a:hover{background:#23262F;color:#E9EAEE}
+  .nav a.on{background:#2A2D36;color:#fff}
+  .nav a.on .ic{color:var(--accent)}
+  .nav .ic{width:18px;height:18px;flex:0 0 18px;color:inherit}
+  .nav .sep{height:1px;background:var(--nav-line);margin:12px 8px}
+  .side .foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid var(--nav-line)}
+  .side .foot .ava{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4B6CB7,#182848);display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff}
+  .side .foot .who{font-size:12.5px;line-height:1.3}
+  .side .foot .who span{display:block;color:var(--nav-2);font-size:11px}
+
+  .main{padding:26px 34px 130px;max-width:980px}
+  .head h1{margin:0;font-size:24px;font-weight:750;letter-spacing:.2px}
+  .head p{margin:6px 0 0;color:var(--ink-2);font-size:14px}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px 20px 18px;margin-top:18px;box-shadow:var(--shadow)}
+  .step-h{display:flex;align-items:center;gap:11px;margin-bottom:15px}
+  .step-h .n{width:25px;height:25px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;font-weight:700;display:grid;place-items:center;flex:0 0 25px;transition:background .2s}
+  .step.done .step-h .n{background:var(--good)}
+  .step-h b{font-size:15.5px;font-weight:650}
+  .step-h .hint{margin-left:auto;font-size:12.5px;color:var(--ink-2)}
+  .step-h .tick{color:var(--good);font-size:12.5px;font-weight:650;display:none;align-items:center;gap:4px}
+  .step.done .step-h .tick{display:inline-flex}
+  .step.done .step-h .hint{display:none}
+
+  .grid{display:grid;gap:12px}
+  .g-ava{grid-template-columns:repeat(auto-fill,minmax(148px,1fr))}
+  .g-voice{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  .g-tpl{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+
+  .opt{position:relative;border:1.5px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;background:#fff;transition:border-color .15s,box-shadow .15s,transform .05s;text-align:left}
+  .opt:hover{border-color:#C9CCD3;box-shadow:0 4px 14px rgba(20,22,28,.06)}
+  .opt:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+  .opt[aria-pressed="true"]::after{content:"✓";position:absolute;top:9px;right:10px;width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center}
+  .opt.add{border-style:dashed;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--ink-2);font-weight:600;font-size:13.5px;min-height:96px}
+  .opt.add:hover{color:var(--accent);border-color:var(--accent)}
+
+  .opt-ava{display:flex;flex-direction:column;align-items:center;gap:9px;text-align:center}
+  .face{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;color:#fff}
+  .face svg{width:30px;height:30px;opacity:.92}
+  .opt-ava .nm{font-weight:650;font-size:14px}
+  .opt-ava .tg{font-size:11.5px;color:var(--ink-2)}
+
+  .opt-voice{display:flex;align-items:center;gap:12px}
+  .play{width:34px;height:34px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;flex:0 0 34px}
+  .opt[aria-pressed="true"] .play{background:var(--accent)}
+  .wave{display:flex;align-items:center;gap:2.5px;height:22px;margin-top:5px}
+  .wave i{width:2.5px;background:#C9CCD3;border-radius:2px;display:block}
+  .opt[aria-pressed="true"] .wave i{background:var(--accent)}
+  .opt-voice .nm{font-weight:650;font-size:14px}
+  .opt-voice .tg{font-size:11.5px;color:var(--ink-2)}
+
+  .opt-tpl .prev{height:64px;border-radius:9px;position:relative;overflow:hidden;margin-bottom:11px;display:grid;place-items:end center;padding-bottom:9px}
+  .opt-tpl .prev .cap{font-size:12px;font-weight:800;padding:2px 8px;border-radius:5px;letter-spacing:.3px}
+  .opt-tpl .nm{font-weight:650;font-size:14px}
+  .opt-tpl .tg{font-size:11.5px;color:var(--ink-2);margin-top:2px}
+
+  .script textarea{width:100%;min-height:120px;border:1.5px solid var(--line);border-radius:12px;padding:13px 14px;font-family:var(--font);font-size:14.5px;line-height:1.65;color:var(--ink);resize:vertical}
+  .script textarea:focus{outline:none;border-color:var(--accent)}
+  .script-bar{display:flex;align-items:center;gap:9px;margin-top:11px;flex-wrap:wrap}
+  .ai-btn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 13px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .ai-btn:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .ai-btn .spark{color:var(--accent)}
+  .cnt{margin-left:auto;font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+  .genbar{position:fixed;bottom:0;left:236px;right:0;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:14px 34px;display:flex;align-items:center;gap:18px;z-index:5}
+  .summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+  .summary .lbl{font-size:12px;color:var(--ink-2);font-weight:600;margin-right:2px}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:20px;background:#F0F1F4;color:var(--ink-2);white-space:nowrap}
+  .chip.set{background:var(--accent-soft);color:var(--accent-ink)}
+  .chip .k{opacity:.7;font-weight:500}
+  .gen-right{margin-left:auto;display:flex;align-items:center;gap:16px;flex:0 0 auto}
+  .eta{font-size:12.5px;color:var(--ink-2);text-align:right;line-height:1.35}
+  .eta b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .cta{border:none;border-radius:12px;padding:13px 26px;font-size:15px;font-weight:700;font-family:var(--font);color:#fff;background:var(--accent);cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 6px 16px rgba(241,80,47,.28);transition:filter .15s,transform .05s}
+  .cta:hover{filter:brightness(1.05)}
+  .cta:active{transform:translateY(1px)}
+  .cta:disabled{background:#C9CCD3;box-shadow:none;cursor:not-allowed;color:#fff}
+
+  .ov{position:fixed;inset:0;background:rgba(24,26,31,.5);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20;padding:24px}
+  .ov.show{display:grid}
+  .card{background:#fff;border-radius:18px;width:min(440px,94vw);padding:26px;box-shadow:0 24px 60px rgba(0,0,0,.28)}
+  .card h3{margin:0 0 4px;font-size:18px;font-weight:700}
+  .card .sub{color:var(--ink-2);font-size:13px;margin-bottom:20px}
+  .flow{display:flex;flex-direction:column;gap:11px;margin-bottom:20px}
+  .fstep{display:flex;align-items:center;gap:11px;font-size:14px;color:var(--ink-2)}
+  .fstep .dot{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:0 0 20px;display:grid;place-items:center;font-size:11px}
+  .fstep.doing{color:var(--ink);font-weight:600}
+  .fstep.doing .dot{border-color:var(--accent);border-top-color:transparent;animation:sp .7s linear infinite}
+  .fstep.ok{color:var(--ink)}
+  .fstep.ok .dot{border-color:var(--good);background:var(--good);color:#fff}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .vwrap{display:none;flex-direction:column;gap:14px}
+  .vwrap.show{display:flex}
+  .vphone{aspect-ratio:9/16;max-height:300px;margin:0 auto;border-radius:16px;background:linear-gradient(160deg,#2A2D36,#12141A);width:auto;position:relative;overflow:hidden;display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+  .vphone .subt{position:absolute;bottom:22px;left:0;right:0;text-align:center;font-weight:800;font-size:15px}
+  .vphone .subt .hi{color:#FFD54A}
+  .vphone .pf{width:74px;height:74px;border-radius:50%;background:linear-gradient(135deg,#E86A4B,#F1A54B);display:grid;place-items:center;color:#fff}
+  .vphone .pf svg{width:40px;height:40px}
+  .dl{display:flex;gap:10px}
+  .dl button{flex:1;border-radius:11px;padding:12px;font-weight:700;font-size:14px;font-family:var(--font);cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink)}
+  .dl .prim{border:none;background:var(--accent);color:#fff}
+
+  @media(max-width:760px){
+    .app{grid-template-columns:1fr}
+    .side{position:fixed;left:-260px}
+    .genbar{left:0;flex-wrap:wrap;gap:10px}
+    .gen-right{width:100%}
+    .cta{flex:1}
+    .main{padding:20px 18px 160px}
+  }
+</style></head><body>
+
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="mk">播</span><b>口播工坊</b></div>
+    <nav class="nav">
+      <a href="#" class="on"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>新建视频</a>
+      <div class="sep"></div>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>我的形象</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M8 8v8M16 6v12M4 11v2M20 10v4"/></svg>我的声音</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg>行业模板</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>我的方案</a>
+    </nav>
+    <div class="foot">
+      <div class="ava">旺</div>
+      <div class="who">旺仔小卖部<span>免费版 · 剩 8 条</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="head">
+      <div class="eyebrow">新建视频</div>
+      <h1>做一条口播视频</h1>
+      <p>选形象、选声音、选风格，打上文案 —— 剩下的克隆、对口型、字幕、成片，系统全包。</p>
+    </div>
+
+    <section class="step" id="s1">
+      <div class="step-h"><span class="n">1</span><b>选一个出镜形象</b>
+        <span class="hint">谁来说</span>
+        <span class="tick">已选 · <span data-pick="ava">—</span></span>
+      </div>
+      <div class="grid g-ava" data-group="ava">
+        <button class="opt opt-ava" aria-pressed="false" data-name="知性女主播"><span class="face" style="background:linear-gradient(135deg,#EC6A9C,#F5A2B8)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">晴岚</span><span class="tg">知性女主播</span></button>
+        <button class="opt opt-ava" aria-pressed="false" data-name="沉稳男主播"><span class="face" style="background:linear-gradient(135deg,#3E7BFA,#5AA0FF)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">正霖</span><span class="tg">沉稳男主播</span></button>
+        <button class="opt opt-ava" aria-pressed="false" data-name="活力种草员"><span class="face" style="background:linear-gradient(135deg,#F1502F,#FF9147)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">小柚</span><span class="tg">活力种草员</span></button>
+        <button class="opt opt-ava" aria-pressed="false" data-name="行业专家"><span class="face" style="background:linear-gradient(135deg,#12B39A,#4FD9BE)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">程博士</span><span class="tg">行业专家</span></button>
+        <button class="opt add" data-add="1"><span style="font-size:18px;line-height:0">＋</span>定制我的形象</button>
+      </div>
+    </section>
+
+    <section class="step" id="s2">
+      <div class="step-h"><span class="n">2</span><b>选一个声音</b>
+        <span class="hint">用什么声线</span>
+        <span class="tick">已选 · <span data-pick="voice">—</span></span>
+      </div>
+      <div class="grid g-voice" data-group="voice">
+        <button class="opt opt-voice" aria-pressed="false" data-name="云希·男声"><span class="play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span><span class="nm">云希</span><span class="tg">自然男声</span><span class="wave"></span></span></button>
+        <button class="opt opt-voice" aria-pressed="false" data-name="晓晓·女声"><span class="play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span><span class="nm">晓晓</span><span class="tg">亲和女声</span><span class="wave"></span></span></button>
+        <button class="opt opt-voice" aria-pressed="false" data-name="我的克隆声"><span class="play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span><span class="nm">我的声音</span><span class="tg">克隆 · 老板本人</span><span class="wave"></span></span></button>
+        <button class="opt add" data-add="1"><span style="font-size:18px;line-height:0">＋</span>克隆新声音</button>
+      </div>
+    </section>
+
+    <section class="step" id="s3">
+      <div class="step-h"><span class="n">3</span><b>选行业风格模板</b>
+        <span class="hint">字幕 · 运镜 · 音乐一套</span>
+        <span class="tick">已选 · <span data-pick="tpl">—</span></span>
+      </div>
+      <div class="grid g-tpl" data-group="tpl">
+        <button class="opt opt-tpl" aria-pressed="false" data-name="知识科普"><span class="prev" style="background:linear-gradient(135deg,#EAF1FF,#D3E3FF)"><span class="cap" style="background:#fff;color:#2B4C87">关键词 高亮</span></span><span class="nm">知识科普</span><span class="tg">干净 · 逐字字幕 · 轻音乐</span></button>
+        <button class="opt opt-tpl" aria-pressed="false" data-name="电商带货"><span class="prev" style="background:linear-gradient(135deg,#FFE9D6,#FFD0A8)"><span class="cap" style="background:#F1502F;color:#fff">买它！</span></span><span class="nm">电商带货</span><span class="tg">冲击 · 大花字 · 燃 BGM</span></button>
+        <button class="opt opt-tpl" aria-pressed="false" data-name="餐饮探店"><span class="prev" style="background:linear-gradient(135deg,#FDECEC,#F8C9C9)"><span class="cap" style="background:#C0392B;color:#fff">好吃到跺脚</span></span><span class="nm">餐饮探店</span><span class="tg">暖色 · 美食空镜 · 亲和</span></button>
+        <button class="opt opt-tpl" aria-pressed="false" data-name="财经职场"><span class="prev" style="background:linear-gradient(135deg,#E7ECF2,#CDD7E2)"><span class="cap" style="background:#1F3350;color:#fff">数据说话</span></span><span class="nm">财经职场</span><span class="tg">沉稳 · 图表 · 专业排版</span></button>
+      </div>
+    </section>
+
+    <section class="step script" id="s4">
+      <div class="step-h"><span class="n">4</span><b>写口播文案</b>
+        <span class="hint">不会写？点 AI 帮你</span>
+        <span class="tick">已填 · <span data-pick="txt">—</span></span>
+      </div>
+      <textarea id="ta" placeholder="直接把要说的话打在这里。例如：今天教你三招，让你的店铺客流翻倍……"></textarea>
+      <div class="script-bar">
+        <button class="ai-btn" id="aiwrite"><span class="spark">✦</span> AI 仿写爆款</button>
+        <button class="ai-btn" id="aigen"><span class="spark">✦</span> AI 帮我写</button>
+        <span class="cnt"><b id="cc">0</b> 字 · 约 <b id="sec">0</b> 秒</span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="genbar">
+  <div class="summary">
+    <span class="lbl">本条方案</span>
+    <span class="chip" data-sum="ava"><span class="k">形象</span> 未选</span>
+    <span class="chip" data-sum="voice"><span class="k">声音</span> 未选</span>
+    <span class="chip" data-sum="tpl"><span class="k">模板</span> 未选</span>
+    <span class="chip" data-sum="txt"><span class="k">文案</span> 0 字</span>
+  </div>
+  <div class="gen-right">
+    <div class="eta">预计出片 <b id="etas">~2</b> 分钟<br><span style="font-size:11.5px">高清 1080×1920 竖屏</span></div>
+    <button class="cta" id="go" disabled>生成视频<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+</div>
+
+<div class="ov" id="ov">
+  <div class="card">
+    <h3 id="ovh">正在生成你的视频</h3>
+    <div class="sub" id="ovs">用「<span id="ovmeta">—</span>」合成，请稍候</div>
+    <div class="flow" id="flow">
+      <div class="fstep" data-f="0"><span class="dot"></span>克隆声音</div>
+      <div class="fstep" data-f="1"><span class="dot"></span>数字人对口型</div>
+      <div class="fstep" data-f="2"><span class="dot"></span>生成逐字字幕</div>
+      <div class="fstep" data-f="3"><span class="dot"></span>套模板成片（运镜·BGM）</div>
+    </div>
+    <div class="vwrap" id="vwrap">
+      <div class="vphone">
+        <div class="pf"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></div>
+        <div class="subt">三招让客流 <span class="hi">翻倍</span></div>
+      </div>
+      <div class="dl">
+        <button id="again">再做一条</button>
+        <button class="prim">下载视频</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  document.querySelectorAll('.wave').forEach(function(w){
+    var h=[7,13,20,11,16,8,14,19,10,15,6,12];
+    w.innerHTML=h.map(function(v){return '<i style="height:'+v+'px"></i>'}).join('');
+  });
+  var picks={ava:null,voice:null,tpl:null,txt:0};
+  function singleSelect(group,btn){
+    document.querySelectorAll('[data-group="'+group+'"] .opt').forEach(function(o){o.setAttribute('aria-pressed','false')});
+    btn.setAttribute('aria-pressed','true');
+    picks[group]=btn.dataset.name;
+    document.querySelector('#s'+({ava:1,voice:2,tpl:3}[group])).classList.add('done');
+    document.querySelector('[data-pick="'+group+'"]').textContent=btn.dataset.name;
+    var chip=document.querySelector('[data-sum="'+group+'"]');
+    chip.classList.add('set');
+    chip.innerHTML='<span class="k">'+({ava:'形象',voice:'声音',tpl:'模板'}[group])+'</span> '+btn.dataset.name;
+    refresh();
+  }
+  document.querySelectorAll('.opt').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      if(btn.classList.contains('add')){ btn.animate([{transform:'scale(1)'},{transform:'scale(.96)'},{transform:'scale(1)'}],{duration:180}); return; }
+      var g=btn.closest('[data-group]').dataset.group;
+      singleSelect(g,btn);
+    });
+  });
+  var ta=document.getElementById('ta'), cc=document.getElementById('cc'), sec=document.getElementById('sec');
+  function onText(){
+    var n=ta.value.trim().length; picks.txt=n;
+    cc.textContent=n; sec.textContent=Math.round(n/4.5);
+    var s4=document.getElementById('s4'); s4.classList.toggle('done',n>0);
+    document.querySelector('[data-pick="txt"]').textContent=n+' 字';
+    var chip=document.querySelector('[data-sum="txt"]'); chip.classList.toggle('set',n>0);
+    chip.innerHTML='<span class="k">文案</span> '+n+' 字';
+    refresh();
+  }
+  ta.addEventListener('input',onText);
+  var sample="今天教你三招，让你的小店客流翻倍。第一招，把招牌菜拍成 15 秒短视频，每天发一条；第二招，评论区置顶一句到店暗号，进店报暗号送小菜；第三招，老顾客建个群，每周三发专属福利。坚持一个月，你会发现回头客明显变多。";
+  document.getElementById('aigen').addEventListener('click',function(){ ta.value=sample; onText(); ta.focus(); });
+  document.getElementById('aiwrite').addEventListener('click',function(){
+    ta.value=(ta.value.trim()||"今天分享三个开店小技巧")+" —— 划重点，看到最后有惊喜，记得点赞收藏关注！"; onText();
+  });
+  var go=document.getElementById('go');
+  function refresh(){
+    var ok=picks.ava&&picks.voice&&picks.tpl&&picks.txt>0;
+    go.disabled=!ok;
+    document.getElementById('etas').textContent = picks.txt>120?'~3':'~2';
+  }
+  var ov=document.getElementById('ov');
+  go.addEventListener('click',function(){
+    document.getElementById('ovmeta').textContent=picks.ava+' · '+picks.voice+' · '+picks.tpl;
+    document.getElementById('vwrap').classList.remove('show');
+    document.getElementById('ovh').textContent='正在生成你的视频';
+    var steps=document.querySelectorAll('.fstep');
+    steps.forEach(function(s){s.className='fstep'});
+    ov.classList.add('show');
+    var i=0;
+    (function next(){
+      if(i>0) steps[i-1].className='fstep ok', steps[i-1].querySelector('.dot').textContent='✓';
+      if(i<steps.length){ steps[i].className='fstep doing'; i++; setTimeout(next, 850); }
+      else {
+        document.getElementById('ovh').textContent='生成完成 🎉';
+        document.getElementById('ovs').innerHTML='「'+picks.tpl+'」风格 · 1080×1920 高清';
+        document.getElementById('flow').style.display='none';
+        document.getElementById('vwrap').classList.add('show');
+      }
+    })();
+  });
+  document.getElementById('again').addEventListener('click',function(){
+    ov.classList.remove('show'); document.getElementById('flow').style.display='';
+  });
+  ov.addEventListener('click',function(e){ if(e.target===ov) ov.classList.remove('show'); });
+})();
+</script>
+</body></html>
