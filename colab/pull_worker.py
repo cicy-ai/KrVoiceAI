@@ -175,8 +175,29 @@ def stream_produce(jid, cmd, env):
 FAKE_TRUE = ("1", "true", "yes", "on")
 
 
+def _has_gpu():
+    """机器上有没有可用 NVIDIA GPU(nvidia-smi 能跑通)。"""
+    try:
+        return subprocess.run(["nvidia-smi"], capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
 def _fake_enabled():
-    return str(os.environ.get("FAKE_PRODUCE", "")).strip().lower() in FAKE_TRUE
+    """要不要走假出片(跳过真 produce.sh):
+      FAKE_PRODUCE=1/true/yes  -> 强制假(验链路)
+      FAKE_PRODUCE=0/false/no  -> 强制真出片
+      不设(默认)               -> 自动:有 GPU 真出片,无 GPU 假出片(验链路)
+    这样起 worker 的命令永远固定,不用手改 FAKE_PRODUCE。"""
+    v = str(os.environ.get("FAKE_PRODUCE", "")).strip().lower()
+    if v in FAKE_TRUE:
+        return True
+    if v in ("0", "false", "no", "off"):
+        return False
+    fake = not _has_gpu()
+    print(f"[worker] FAKE_PRODUCE 未设 -> 自动检测:{'无 GPU,走假出片验链路' if fake else '有 GPU,走真出片'}",
+          flush=True)
+    return fake
 
 
 def _find_cjk_font():
