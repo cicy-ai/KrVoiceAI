@@ -8,18 +8,19 @@ WORKDIR="${WORKDIR:-$([ -d /workspace ] && echo /workspace || ([ -d /content ] &
 VIDEO="${1:-$WORKDIR/input_video.mp4}"
 TEXT="${2:-大家好，欢迎观看这条由数字人生成的口播视频，这是用我自己的声音克隆出来的。}"
 REF_SRC="${3:-$VIDEO}"                       # 参考音频来源（默认用视频里那个人的声音）
+SETUP_ONLY="${SETUP_ONLY:-0}"                # 1 = 只装 CosyVoice 环境(依赖+模型)不克隆,装一次复用
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [ ! -f "$VIDEO" ]; then echo "❌ 找不到视频: $VIDEO"; exit 1; fi
+# CosyVoice 代码+依赖+模型装在**固定位置**,装一次所有任务复用(独立于 worker 临时 WORKDIR)
+CV_BASE="$([ -d /workspace ] && echo /workspace || ([ -d /content ] && echo /content || echo "$HOME"))"
+CV_HOME="${CV_HOME:-$CV_BASE/CosyVoice}"
 
-cd "$WORKDIR"
+# 出片时才需要视频;只装环境模式不需要
+if [ "$SETUP_ONLY" != "1" ] && [ ! -f "$VIDEO" ]; then echo "❌ 找不到视频: $VIDEO"; exit 1; fi
 
-# ===== 1) 安装 CosyVoice2 =====
-if [ ! -d CosyVoice ]; then
-  echo "== clone CosyVoice2 =="
-  git clone -q --recursive https://github.com/FunAudioLLM/CosyVoice.git
-fi
-cd CosyVoice
+# ===== 1) 安装 CosyVoice2(固定位置,装一次复用) =====
+[ -d "$CV_HOME/.git" ] || git clone -q --recursive https://github.com/FunAudioLLM/CosyVoice.git "$CV_HOME"
+cd "$CV_HOME"
 if [ ! -f .cv_deps_done ]; then
   echo "== 装 CosyVoice 依赖(约5-10分钟) =="
   pip install -q -r requirements.txt 2>&1 | tail -2 || true
@@ -47,6 +48,15 @@ if [ ! -d pretrained_models/CosyVoice2-0.5B ]; then
 from modelscope import snapshot_download
 snapshot_download('iic/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')
 PY
+fi
+
+# 只装环境模式:装完 CosyVoice 依赖+模型就退出(不抽音/不克隆),装一次后续复用
+if [ "$SETUP_ONLY" = "1" ]; then
+  echo ""
+  echo "✅ CosyVoice 环境就绪(装一次,后续所有克隆复用): $CV_HOME"
+  echo "   依赖: $([ -f .cv_deps_done ] && echo 已装 || echo 缺)  |  模型: $([ -d pretrained_models/CosyVoice2-0.5B ] && echo 已下 || echo 缺)"
+  python -c "import torch;print('   torch',torch.__version__,'| CUDA',torch.cuda.is_available())" 2>/dev/null || echo "   ⚠️ torch import 失败"
+  exit 0
 fi
 
 # ===== 3) 从视频抽 8s 参考音 + whisper 转写(得到参考文本) =====
