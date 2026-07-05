@@ -207,7 +207,10 @@ def oss_presign():
     key = safe_key(filename)
     try:
         # slash_safe:key 里的 '/' 不做 URL 编码,签名才对得上浏览器 PUT
-        put_url = bucket.sign_url("PUT", key, PRESIGN_EXPIRE, slash_safe=True)
+        # Content-Type 必须签进去:浏览器 XHR PUT 会带 Content-Type,不签则 SignatureDoesNotMatch(403)
+        # 前端统一发 application/octet-stream,两边一致
+        put_url = bucket.sign_url("PUT", key, PRESIGN_EXPIRE, slash_safe=True,
+                                  headers={"Content-Type": "application/octet-stream"})
     except Exception as e:
         return jsonify({"error": f"生成预签名 URL 失败:{e}"}), 500
     return jsonify({"key": key, "put_url": put_url, "get_url": public_url(key)}), 200

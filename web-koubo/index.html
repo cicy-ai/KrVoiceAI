@@ -319,6 +319,8 @@
         spEl.textContent='上传中…';
         return new Promise(function(resolve,reject){
           var xhr=new XMLHttpRequest(); xhr.open('PUT', sig.put_url, true);
+          // 覆盖浏览器默认 Content-Type,和预签名里签的保持一致,否则 OSS 403 SignatureDoesNotMatch
+          xhr.setRequestHeader('Content-Type','application/octet-stream');
           var t0=Date.now();
           xhr.upload.onprogress=function(e){
             if(!e.lengthComputable) return;
