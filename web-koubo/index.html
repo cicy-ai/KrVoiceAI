@@ -135,7 +135,12 @@
     .cta{flex:1}
     .main{padding:20px 18px 160px}
   }
+  .cog{position:fixed;top:16px;right:18px;z-index:30;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;display:grid;place-items:center;box-shadow:var(--shadow)}
+  .cog:hover{color:var(--accent);border-color:var(--accent)}
+  .verr{background:#FDECEC;color:#C0392B;border:1px solid #F5C6C6;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5;word-break:break-word;max-height:180px;overflow:auto}
 </style></head><body>
+
+<button class="cog" id="cog" title="Worker 设置"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
 <div class="app">
   <aside class="side">
@@ -300,30 +305,97 @@
     go.disabled=!ok;
     document.getElementById('etas').textContent = picks.txt>120?'~3':'~2';
   }
-  var ov=document.getElementById('ov');
+  // ---- Worker 地址配置(localStorage) ----
+  function getWorker(){ return (localStorage.getItem('krvoice_worker_url')||'').trim().replace(/\/+$/,''); }
+  function editWorker(){
+    var v=prompt('填入 Worker 公网地址\n(Colab worker.log 里「任务队列 API」那条,形如 https://xxx.trycloudflare.com)', getWorker());
+    if(v!==null){ localStorage.setItem('krvoice_worker_url', v.trim().replace(/\/+$/,'')); }
+    return getWorker();
+  }
+  document.getElementById('cog').addEventListener('click',editWorker);
+
+  // ---- 前端模板中文名 -> 后端 tpl 值 ----
+  var TPL_MAP={'知识科普':'knowledge','电商带货':'ecommerce','餐饮探店':'ecommerce','财经职场':'ecommerce'};
+
+  var ov=document.getElementById('ov'), flow=document.getElementById('flow'),
+      vwrap=document.getElementById('vwrap'), ovh=document.getElementById('ovh'),
+      ovs=document.getElementById('ovs');
+  var steps=document.querySelectorAll('.fstep');
+  var poller=null, curStep=0;
+
+  function paintSteps(k, allOk){
+    steps.forEach(function(s,idx){
+      var dot=s.querySelector('.dot');
+      if(allOk || idx<k){ s.className='fstep ok'; dot.textContent='✓'; }
+      else if(idx===k){ s.className='fstep doing'; dot.textContent=''; }
+      else { s.className='fstep'; dot.textContent=''; }
+    });
+  }
+  function closeOverlay(){
+    if(poller){ clearInterval(poller); poller=null; }
+    ov.classList.remove('show'); flow.style.display=''; go.disabled=false; refresh();
+  }
+  function showError(msg){
+    if(poller){ clearInterval(poller); poller=null; }
+    flow.style.display='none';
+    ovh.textContent='生成失败'; ovs.textContent='任务没能出片,可重试或检查 Worker';
+    vwrap.innerHTML='<div class="verr" id="errbox"></div><div class="dl"><button id="again" class="prim">知道了</button></div>';
+    document.getElementById('errbox').textContent=String(msg||'未知错误');
+    vwrap.classList.add('show');
+    document.getElementById('again').onclick=closeOverlay;
+  }
+  function showVideo(url, W){
+    if(poller){ clearInterval(poller); poller=null; }
+    paintSteps(0, true);
+    var src=(/^https?:\/\//.test(url)? url : (W + (url.charAt(0)==='/'?'':'/') + url));
+    flow.style.display='none';
+    ovh.textContent='生成完成 🎉';
+    ovs.innerHTML='「'+picks.tpl+'」风格 · 1080×1920 高清';
+    vwrap.innerHTML=
+      '<video controls autoplay playsinline style="width:100%;max-height:58vh;border-radius:14px;background:#000"></video>'
+     +'<div class="dl"><button id="again">再做一条</button>'
+     +'<a class="prim" id="dl" download style="flex:1;text-align:center;text-decoration:none;line-height:2.6">下载视频</a></div>';
+    vwrap.querySelector('video').src=src;
+    var a=document.getElementById('dl'); a.href=src;
+    vwrap.classList.add('show');
+    document.getElementById('again').onclick=closeOverlay;
+  }
+
+  function pollJob(W, id){
+    curStep=0;
+    poller=setInterval(function(){
+      fetch(W+'/jobs/'+id).then(function(r){return r.json();}).then(function(j){
+        if(!j || j.status==='failed'){ showError((j&&(j.error||('出片失败 rc='+(j.rc!=null?j.rc:'?'))))||'任务失败'); return; }
+        if(j.status==='done'){ if(j.url) showVideo(j.url, W); else showError('已完成但未拿到成片链接'); return; }
+        // queued / running:进度条随真实 running 往前推,末步留到 done 才打勾
+        if(j.status==='running' && curStep<steps.length-1){ curStep++; }
+        paintSteps(curStep, false);
+      }).catch(function(){ /* 轮询瞬时错误,忽略,下次再试 */ });
+    }, 3000);
+  }
+
   go.addEventListener('click',function(){
+    var W=getWorker();
+    if(!W){ alert('请先在右上角 ⚙ 设置里填 Worker 地址'); editWorker(); return; }
     document.getElementById('ovmeta').textContent=picks.ava+' · '+picks.voice+' · '+picks.tpl;
-    document.getElementById('vwrap').classList.remove('show');
-    document.getElementById('ovh').textContent='正在生成你的视频';
-    var steps=document.querySelectorAll('.fstep');
-    steps.forEach(function(s){s.className='fstep'});
-    ov.classList.add('show');
-    var i=0;
-    (function next(){
-      if(i>0) steps[i-1].className='fstep ok', steps[i-1].querySelector('.dot').textContent='✓';
-      if(i<steps.length){ steps[i].className='fstep doing'; i++; setTimeout(next, 850); }
-      else {
-        document.getElementById('ovh').textContent='生成完成 🎉';
-        document.getElementById('ovs').innerHTML='「'+picks.tpl+'」风格 · 1080×1920 高清';
-        document.getElementById('flow').style.display='none';
-        document.getElementById('vwrap').classList.add('show');
-      }
-    })();
+    // 复位弹窗到「进度」态
+    vwrap.classList.remove('show'); vwrap.innerHTML='';
+    flow.style.display=''; ovh.textContent='正在生成你的视频';
+    ovs.innerHTML='用「<span id="ovmeta2"></span>」合成,请稍候';
+    document.getElementById('ovmeta2').textContent=picks.ava+' · '+picks.voice+' · '+picks.tpl;
+    curStep=0; paintSteps(0, false);
+    ov.classList.add('show'); go.disabled=true;
+    var body={ text: ta.value.trim(), tpl: (TPL_MAP[picks.tpl]||'ecommerce'), avatar: picks.ava, voice: picks.voice };
+    fetch(W+'/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d || !d.id){ throw new Error((d&&d.error)||'提交失败,请检查 Worker 地址'); }
+        pollJob(W, d.id);
+      })
+      .catch(function(e){ showError((e&&e.message)||('无法连接 Worker: '+W)); });
   });
-  document.getElementById('again').addEventListener('click',function(){
-    ov.classList.remove('show'); document.getElementById('flow').style.display='';
-  });
-  ov.addEventListener('click',function(e){ if(e.target===ov) ov.classList.remove('show'); });
+
+  ov.addEventListener('click',function(e){ if(e.target===ov) closeOverlay(); });
 })();
 </script>
 </body></html>

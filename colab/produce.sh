@@ -34,7 +34,8 @@ fi
 # ① 声音 + ② 数字人底版 -> $WORKDIR/LatentSync/video_out.mp4
 if [ "${SKIP_CLONE:-0}" = "1" ]; then
   echo "== 纯TTS(不克隆): latentsync.sh edge-tts 配音 + LatentSync 唇形同步 =="
-  bash "$REPO_DIR/colab/latentsync.sh" "$VIDEO" "$TEXT"
+  # VOICE 环境变量给了就透传为音色(如 zh-CN-XiaoxiaoNeural);没给则 latentsync.sh 用默认云希
+  bash "$REPO_DIR/colab/latentsync.sh" "$VIDEO" "$TEXT" ${VOICE:+"$VOICE"}
 else
   # 克隆是主推卖点,失败就失败,不降级(效果优先,不偷换大众音色)
   bash "$REPO_DIR/colab/clone.sh" "$VIDEO" "$TEXT" "$VOICE_REF"
