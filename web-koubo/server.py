@@ -13,27 +13,34 @@
   $KRVOICE_DATA/jobs/<id>.json   任务元数据
   $KRVOICE_DATA/pub/<id>.mp4     成片
 
-数据落地(素材库,默认 ~/cicy-ai/assets,可用环境变量 KRVOICE_ASSETS 覆盖):
-  $KRVOICE_ASSETS/<文件名>        用户上传的驱动视频/声样/商家图,worker 直接 HTTP 拉取
+素材库(阿里云 OSS,已彻底去掉本地 ~/cicy-ai/assets):
+  前端浏览器拿预签名 URL 直传 OSS(国内秒传,不经 cloudshell),
+  worker 从公读 URL(https://<bucket>.<region>.aliyuncs.com/<key>)HTTP GET 下载。
+  OSS 配置全部走环境变量,AK 绝不硬编码:
+    OSS_KEY_ID / OSS_KEY_SECRET   访问密钥(部署时注入,缺失则 /oss/presign、/assets 报 500)
+    OSS_ENDPOINT                  默认 https://oss-cn-hangzhou.aliyuncs.com
+    OSS_BUCKET                    默认 krvoice-assets(公读桶,CORS 已开 *)
+  对象 key 统一 assets/<时间戳_uuid_安全化原名>。
 
 ============================ API 契约 ============================
 GET  /                     -> index.html(口播工坊前端)
 GET  /<静态文件>            -> web-koubo/ 同目录静态资源
 
-GET  /assets               -> 200 [{name, kind(video|audio|image|other), size, mtime}, ...] 列出素材
-POST /assets               (multipart) 字段 file=<文件>
-     -> 201 {name, kind}   存到 ASSETS_DIR,同名加序号避免覆盖
-GET  /assets/<file>        -> 下载素材(worker 用;只允许 basename,防路径穿越)
-DELETE /assets/<file>      -> 200 {ok:true} 删除一个素材;无 -> 404
+GET  /oss/presign?filename=<原名>&kind=<video|audio|image>
+     -> 200 {key, put_url, get_url}   put_url=预签名 PUT(有效1小时),前端直传;get_url=公读下载
+     -> 500 {error}                   OSS 未配置(缺 OSS_KEY_ID / OSS_KEY_SECRET)
+GET  /assets               -> 200 [{key, name, kind(video|audio|image|other), size, url}, ...] 列 OSS assets/ 前缀
+     -> 500 {error}         OSS 未配置
+DELETE /assets?key=<key>   -> 200 {ok:true} 删除一个 OSS 对象;非法 key -> 400;未配置 -> 500
 
 POST /jobs
      body(JSON): {text, tpl?, voice?, driver?, voice_ref?, asset_imgs?, avatar?, desc?}
      -> 201 {id, status:"queued", check:"/jobs/<id>"}      (前端提交)
      text 必填,缺失 400。
-       driver:     驱动视频素材文件名(worker 从 /assets/<driver> 下载)
+       driver:     驱动视频的 OSS key(worker 从公读 URL 下载)
        voice:      "云希"|"晓晓"|"克隆"(云希/晓晓→edge-tts;克隆→声音克隆)
-       voice_ref:  声样素材文件名(voice=="克隆"时用,空则回退驱动视频本人)
-       asset_imgs: 商家图素材文件名数组(可空;非空走图文编排,空则纯口播)
+       voice_ref:  声样的 OSS key(voice=="克隆"时用,空则回退驱动视频本人)
+       asset_imgs: 商家图 OSS key 数组(可空;非空走图文编排,空则纯口播)
 
 GET  /jobs/<id>
      -> 200 {id, status:queued|running|done|failed, progress?, url?, error?, ...}
@@ -65,21 +72,27 @@ lease 超时兜底:running 任务超过 LEASE_TIMEOUT(默认 30 分钟)没结果
 
 同源部署,CORS 留 `*`(非必需,方便调试跨源)。
 """
-import os, json, time, uuid, threading
+import os, re, json, time, uuid, threading
+from urllib.parse import quote
 from flask import Flask, request, jsonify, send_from_directory, send_file, abort
 
 PORT = int(os.environ.get("KRVOICE_PORT", "8000"))
 DATA = os.path.expanduser(os.environ.get("KRVOICE_DATA", "~/krvoice-data"))
 JOBS = os.path.join(DATA, "jobs")
 PUB = os.path.join(DATA, "pub")
-# 素材库(用户上传的驱动视频/声样/商家图),worker 从 GET /assets/<file> 拉取。
-ASSETS = os.path.expanduser(os.environ.get("KRVOICE_ASSETS", "~/cicy-ai/assets"))
 WEB = os.path.dirname(os.path.abspath(__file__))          # web-koubo/ 静态目录
 LEASE_TIMEOUT = int(os.environ.get("KRVOICE_LEASE_TIMEOUT", str(30 * 60)))  # 秒
 
+# ---------------- OSS 配置(AK 绝不硬编码,全走环境变量) ----------------
+OSS_KEY_ID = os.environ.get("OSS_KEY_ID", "")
+OSS_KEY_SECRET = os.environ.get("OSS_KEY_SECRET", "")
+OSS_ENDPOINT = os.environ.get("OSS_ENDPOINT", "https://oss-cn-hangzhou.aliyuncs.com")
+OSS_BUCKET = os.environ.get("OSS_BUCKET", "krvoice-assets")
+OSS_PREFIX = "assets/"                      # bucket 内素材前缀
+PRESIGN_EXPIRE = 3600                        # 预签名 PUT 有效期(秒)
+
 os.makedirs(JOBS, exist_ok=True)
 os.makedirs(PUB, exist_ok=True)
-os.makedirs(ASSETS, exist_ok=True)
 
 # 素材类型(按扩展名推断)
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -98,29 +111,41 @@ def asset_kind(name):
     return "other"
 
 
-def safe_asset(name):
-    """把外部传入的素材名收敛成 ASSETS 下的合法路径,防路径穿越(只允许 basename)。"""
-    base = os.path.basename((name or "").replace("\\", "/"))
-    if not base or base in (".", ".."):
-        return None
-    full = os.path.normpath(os.path.join(ASSETS, base))
-    if os.path.dirname(full) != os.path.normpath(ASSETS):
-        return None
-    return full
+def oss_configured():
+    return bool(OSS_KEY_ID and OSS_KEY_SECRET)
 
 
-def unique_asset_name(name):
-    """同名加序号,避免覆盖已存在素材。"""
-    base = os.path.basename((name or "file").replace("\\", "/")) or "file"
-    if not os.path.exists(os.path.join(ASSETS, base)):
-        return base
-    stem, ext = os.path.splitext(base)
-    n = 1
-    while True:
-        cand = f"{stem}-{n}{ext}"
-        if not os.path.exists(os.path.join(ASSETS, cand)):
-            return cand
-        n += 1
+def oss_bucket():
+    """构造 oss2.Bucket;未配置 AK 返回 None。"""
+    if not oss_configured():
+        return None
+    import oss2
+    auth = oss2.Auth(OSS_KEY_ID, OSS_KEY_SECRET)
+    return oss2.Bucket(auth, OSS_ENDPOINT, OSS_BUCKET)
+
+
+def oss_public_base():
+    """公读下载基址:https://oss-cn-hangzhou.aliyuncs.com + bucket -> https://<bucket>.oss-cn-hangzhou.aliyuncs.com"""
+    m = re.match(r"^(https?://)(.+)$", OSS_ENDPOINT.rstrip("/"))
+    if not m:
+        return f"https://{OSS_BUCKET}.oss-cn-hangzhou.aliyuncs.com"
+    return f"{m.group(1)}{OSS_BUCKET}.{m.group(2)}"
+
+
+def public_url(key):
+    return f"{oss_public_base()}/{quote(key, safe='/')}"
+
+
+def safe_key(filename):
+    """原名 -> assets/<时间戳_uuid_安全化原名>,ASCII 安全,防冲突/穿越。"""
+    base = os.path.basename((filename or "").replace("\\", "/")).strip() or "file"
+    base = re.sub(r"[^A-Za-z0-9._\-]+", "_", base).strip("_") or "file"
+    if base in (".", ".."):
+        base = "file"
+    return OSS_PREFIX + time.strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:6] + "_" + base
+
+
+ERR_OSS = ({"error": "OSS 未配置:缺 OSS_KEY_ID / OSS_KEY_SECRET 环境变量"}, 500)
 
 app = Flask(__name__, static_folder=None)
 lock = threading.Lock()
@@ -171,47 +196,59 @@ def all_jobs():
     return out
 
 
-# ---------------- 素材库(上传/列出/下载/删除) ----------------
+# ---------------- 素材库(阿里云 OSS:预签名直传 / 列出 / 删除) ----------------
+@app.get("/oss/presign")
+def oss_presign():
+    """前端拿 put_url 直传 OSS,拿 key/get_url 记录。"""
+    bucket = oss_bucket()
+    if bucket is None:
+        return jsonify(ERR_OSS[0]), ERR_OSS[1]
+    filename = request.args.get("filename", "")
+    key = safe_key(filename)
+    try:
+        # slash_safe:key 里的 '/' 不做 URL 编码,签名才对得上浏览器 PUT
+        put_url = bucket.sign_url("PUT", key, PRESIGN_EXPIRE, slash_safe=True)
+    except Exception as e:
+        return jsonify({"error": f"生成预签名 URL 失败:{e}"}), 500
+    return jsonify({"key": key, "put_url": put_url, "get_url": public_url(key)}), 200
+
+
 @app.get("/assets")
 def list_assets():
+    bucket = oss_bucket()
+    if bucket is None:
+        return jsonify(ERR_OSS[0]), ERR_OSS[1]
+    import oss2
     out = []
-    for f in sorted(os.listdir(ASSETS)):
-        full = os.path.join(ASSETS, f)
-        if os.path.isfile(full):
-            st = os.stat(full)
+    try:
+        for obj in oss2.ObjectIterator(bucket, prefix=OSS_PREFIX):
+            if obj.key.endswith("/"):          # 跳过目录标记对象
+                continue
+            name = obj.key[len(OSS_PREFIX):]
             out.append({
-                "name": f,
-                "kind": asset_kind(f),
-                "size": st.st_size,
-                "mtime": int(st.st_mtime),
+                "key": obj.key,
+                "name": name,
+                "kind": asset_kind(name),
+                "size": obj.size,
+                "url": public_url(obj.key),
             })
+    except Exception as e:
+        return jsonify({"error": f"列 OSS 对象失败:{e}"}), 500
     return jsonify(out), 200
 
 
-@app.post("/assets")
-def upload_asset():
-    f = request.files.get("file")
-    if not f or not f.filename:
-        return jsonify({"error": "缺少上传文件字段 file"}), 400
-    name = unique_asset_name(f.filename)
-    f.save(os.path.join(ASSETS, name))
-    return jsonify({"name": name, "kind": asset_kind(name)}), 201
-
-
-@app.get("/assets/<path:fname>")
-def get_asset(fname):
-    full = safe_asset(fname)
-    if not full or not os.path.isfile(full):
-        abort(404)
-    return send_file(full)
-
-
-@app.delete("/assets/<path:fname>")
-def delete_asset(fname):
-    full = safe_asset(fname)
-    if not full or not os.path.isfile(full):
-        abort(404)
-    os.remove(full)
+@app.delete("/assets")
+def delete_asset():
+    bucket = oss_bucket()
+    if bucket is None:
+        return jsonify(ERR_OSS[0]), ERR_OSS[1]
+    key = request.args.get("key", "")
+    if not key or not key.startswith(OSS_PREFIX) or ".." in key:
+        return jsonify({"error": "非法 key(必须是 assets/ 前缀)"}), 400
+    try:
+        bucket.delete_object(key)
+    except Exception as e:
+        return jsonify({"error": f"删除 OSS 对象失败:{e}"}), 500
     return jsonify({"ok": True}), 200
 
 
@@ -248,9 +285,9 @@ def submit():
         "avatar": b.get("avatar", ""),
         "voice": b.get("voice", ""),
         "desc": b.get("desc", ""),
-        "driver": b.get("driver", ""),           # 驱动视频素材文件名(worker 从 /assets 下载)
-        "voice_ref": b.get("voice_ref", ""),     # 声样素材文件名(voice=="克隆"时用)
-        "asset_imgs": list(b.get("asset_imgs") or []),  # 商家图素材文件名数组(可空)
+        "driver": b.get("driver", ""),           # 驱动视频 OSS key(worker 从公读 URL 下载)
+        "voice_ref": b.get("voice_ref", ""),     # 声样 OSS key(voice=="克隆"时用)
+        "asset_imgs": list(b.get("asset_imgs") or []),  # 商家图 OSS key 数组(可空)
     }
     with lock:
         save(j)

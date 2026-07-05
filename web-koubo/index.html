@@ -60,6 +60,10 @@
   .opt[aria-pressed="true"]::after{content:"✓";position:absolute;top:9px;right:10px;width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center}
   .opt.add{border-style:dashed;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--ink-2);font-weight:600;font-size:13.5px;min-height:96px}
   .opt.add:hover{color:var(--accent);border-color:var(--accent)}
+  .opt .del{position:absolute;top:7px;left:8px;width:19px;height:19px;border-radius:50%;border:none;background:rgba(24,26,31,.55);color:#fff;font-size:13px;line-height:1;cursor:pointer;display:none;place-items:center;padding:0;z-index:3}
+  .opt:hover .del{display:grid}
+  .opt .del:hover{background:var(--accent)}
+  .thumb-face{overflow:hidden;padding:0}
 
   .opt-ava{display:flex;flex-direction:column;align-items:center;gap:9px;text-align:center}
   .face{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;color:#fff}
@@ -136,6 +140,25 @@
     .main{padding:20px 18px 160px}
   }
   .verr{background:#FDECEC;color:#C0392B;border:1px solid #F5C6C6;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5;word-break:break-word;max-height:180px;overflow:auto}
+
+  /* 上传进度卡片(右下角,直传 OSS 用) */
+  .uploads{position:fixed;right:22px;bottom:92px;z-index:30;display:flex;flex-direction:column;gap:10px;width:308px;max-width:calc(100vw - 40px)}
+  .up{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;font-size:12.5px;animation:upin .18s ease}
+  @keyframes upin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .up .t{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  .up .fn{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+  .up .pct{color:var(--ink-2);font-variant-numeric:tabular-nums;flex:0 0 auto;font-weight:600}
+  .up .track{height:6px;border-radius:4px;background:#EEF0F3;overflow:hidden}
+  .up .bar{height:100%;width:0;background:var(--accent);border-radius:4px;transition:width .18s ease}
+  .up .meta{margin-top:7px;color:var(--ink-2);font-size:11.5px;display:flex;justify-content:space-between;gap:8px}
+  .up.ok .bar{background:var(--good)}
+  .up.ok .pct{color:var(--good)}
+  .up.err{border-color:#F5C6C6;background:#FDECEC}
+  .up.err .bar{background:#C0392B}
+  .up.err .sp{color:#C0392B}
+  .up .retry{color:var(--accent-ink);cursor:pointer;font-weight:700}
+  .up .retry:hover{text-decoration:underline}
+  .thumb{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
 </style></head><body>
 
 <div class="app">
@@ -255,9 +278,67 @@
 <script>
 (function(){
   // ============ 素材库(driver=视频 / voice_ref=声样 / asset_imgs=商家图)============
-  // 前端和队列中心(server.py)同源:直接打相对路径 /assets、/jobs、/pub。
+  // 素材直传阿里云 OSS:GET /oss/presign 拿预签名 PUT URL,浏览器 XHR PUT 直传(国内秒传,
+  // 不经 cloudshell)。列表 GET /assets(返回 OSS 对象,带 key/name/url),删除 DELETE /assets?key=。
+  // 选中/提交 job 用的都是 OSS key。前端与队列中心 server.py 同源,打相对路径。
   function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   function shortName(n){ n=String(n); return n.length>18 ? n.slice(0,15)+'…'+n.slice(-3) : n; }
+  // OSS key(assets/时间戳_uuid_原名) → 展示用短名
+  function keyName(k){ return String(k||'').replace(/^assets\//,'').replace(/^\d{14}_[0-9a-f]{6}_/,''); }
+  function fmtSize(b){ b=+b||0; if(b>=1073741824) return (b/1073741824).toFixed(1)+' GB'; if(b>=1048576) return (b/1048576).toFixed(1)+' MB'; if(b>=1024) return (b/1024).toFixed(0)+' KB'; return b+' B'; }
+  function fmtSpeed(bps){ if(bps>=1048576) return (bps/1048576).toFixed(1)+' MB/s'; if(bps>=1024) return (bps/1024).toFixed(0)+' KB/s'; return Math.round(bps||0)+' B/s'; }
+
+  // ---- 上传进度卡片管理(右下角) ----
+  var upBox=null;
+  function upContainer(){ if(!upBox){ upBox=document.createElement('div'); upBox.className='uploads'; document.body.appendChild(upBox); } return upBox; }
+
+  // 直传一个文件到 OSS:① GET /oss/presign 拿 put_url ② XHR PUT 上传(带进度) ③ 回调 {key,get_url}
+  function startUpload(kind, file, onDone){
+    var card=document.createElement('div'); card.className='up';
+    card.innerHTML='<div class="t"><span class="fn"></span><span class="pct">0%</span></div>'
+      +'<div class="track"><div class="bar"></div></div>'
+      +'<div class="meta"><span class="sp">准备直传…</span><span class="sz"></span></div>';
+    card.querySelector('.fn').textContent=file.name;
+    card.querySelector('.sz').textContent=fmtSize(file.size);
+    upContainer().appendChild(card);
+    var barEl=card.querySelector('.bar'), pctEl=card.querySelector('.pct'),
+        spEl=card.querySelector('.sp');
+
+    function fail(msg){
+      card.className='up err';
+      spEl.textContent=String(msg||'上传失败');
+      pctEl.textContent='';
+      var r=document.createElement('span'); r.className='retry'; r.textContent='重试';
+      r.onclick=function(){ card.remove(); startUpload(kind, file, onDone); };
+      pctEl.appendChild(r);
+    }
+
+    fetch('/oss/presign?filename='+encodeURIComponent(file.name)+'&kind='+encodeURIComponent(kind))
+      .then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error((d&&d.error)||('presign 失败 HTTP '+r.status)); return d; }); })
+      .then(function(sig){
+        spEl.textContent='上传中…';
+        return new Promise(function(resolve,reject){
+          var xhr=new XMLHttpRequest(); xhr.open('PUT', sig.put_url, true);
+          var t0=Date.now();
+          xhr.upload.onprogress=function(e){
+            if(!e.lengthComputable) return;
+            var p=Math.round(e.loaded/e.total*100);
+            barEl.style.width=p+'%'; pctEl.textContent=p+'%';
+            var dt=(Date.now()-t0)/1000; spEl.textContent=fmtSpeed(dt>0?e.loaded/dt:0);
+          };
+          xhr.onload=function(){ (xhr.status>=200&&xhr.status<300) ? resolve(sig) : reject(new Error('OSS 拒绝上传 HTTP '+xhr.status)); };
+          xhr.onerror=function(){ reject(new Error('网络错误,直传失败')); };
+          xhr.onabort=function(){ reject(new Error('上传已取消')); };
+          xhr.send(file);
+        });
+      })
+      .then(function(sig){
+        card.className='up ok'; barEl.style.width='100%'; pctEl.textContent='完成'; spEl.textContent='已上传 OSS';
+        setTimeout(function(){ card.remove(); if(upBox&&!upBox.children.length){ upBox.remove(); upBox=null; } }, 1800);
+        onDone && onDone(sig);   // sig = {key, get_url}
+      })
+      .catch(function(e){ fail((e&&e.message)||'上传失败'); });
+  }
 
   var FILM='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5v14M16 5v14M4 12h16"/></svg>';
   var PIC='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M5 17l4-4 3 3 3-4 4 5"/></svg>';
@@ -278,51 +359,60 @@
   function fillWave(w){ var h=[7,13,20,11,16,8,14,19,10,15,6,12]; w.innerHTML=h.map(function(v){return '<i style="height:'+v+'px"></i>';}).join(''); }
   function emptyTip(txt){ var t=document.createElement('div'); t.textContent=txt; t.style.cssText='grid-column:1/-1;color:var(--ink-2);font-size:13px;padding:8px 2px'; return t; }
 
-  // ---- 上传:multipart POST /assets(image 可多选);done 回调收到最后一个新文件名 ----
-  function upload(kind,cb){
+  // ---- 选文件 → 直传 OSS(image 可多选);每个文件传完各自回调 onEach({key,get_url}) ----
+  function upload(kind, onEach){
     var inp=document.createElement('input'); inp.type='file';
     inp.accept = kind==='video'?'video/*' : kind==='audio'?'audio/*' : 'image/*';
     if(kind==='image') inp.multiple=true;
     inp.onchange=function(){
       var files=Array.prototype.slice.call(inp.files||[]); if(!files.length) return;
-      var last=null;
-      (function next(i){
-        if(i>=files.length){ cb&&cb(last); return; }
-        var fd=new FormData(); fd.append('file',files[i]);
-        fetch('/assets',{method:'POST',body:fd})
-          .then(function(r){return r.json();})
-          .then(function(d){ if(d&&d.name) last=d.name; next(i+1); })
-          .catch(function(){ next(i+1); });
-      })(0);
+      files.forEach(function(f){ startUpload(kind, f, onEach); });
     };
     inp.click();
   }
 
   function loadAssets(){
-    return fetch('/assets').then(function(r){return r.json();})
+    return fetch('/assets').then(function(r){return r.json().then(function(l){ return r.ok?l:[]; });})
       .then(function(l){ ASSETS=Array.isArray(l)?l:[]; renderAll(); })
       .catch(function(){ ASSETS=[]; renderAll(); });
   }
   function renderAll(){ renderAva(); renderVoice(); renderImgs(); }
 
-  // ---------- ① 形象(video 素材 → driver) ----------
+  // 给素材列表项挂一个「×」删除按钮(DELETE /assets?key=);删除后本地清理并刷新
+  function addDelBtn(btn, a, afterDel){
+    var d=document.createElement('button'); d.type='button'; d.className='del'; d.title='删除素材'; d.textContent='×';
+    d.onclick=function(ev){
+      ev.stopPropagation();
+      if(!confirm('删除素材「'+keyName(a.key)+'」?')) return;
+      fetch('/assets?key='+encodeURIComponent(a.key),{method:'DELETE'})
+        .then(function(r){ if(!r.ok) throw 0; if(picks.driver===a.key) picks.driver=null;
+          if(picks.voice_ref===a.key){ picks.voice='云希'===picks.voice?picks.voice:null; picks.voice_ref=null; }
+          var ii=picks.imgs.indexOf(a.key); if(ii>=0) picks.imgs.splice(ii,1);
+          loadAssets().then(function(){ afterDel&&afterDel(); }); })
+        .catch(function(){ alert('删除失败,请重试'); });
+    };
+    btn.appendChild(d);
+  }
+
+  // ---------- ① 形象(video 素材 → driver=OSS key) ----------
   function renderAva(){
     var g=document.getElementById('grid-ava'); g.innerHTML='';
     var vids=ASSETS.filter(function(a){return a.kind==='video';});
     vids.forEach(function(a){
       var b=document.createElement('button'); b.type='button'; b.className='opt opt-ava';
-      b.setAttribute('aria-pressed', picks.driver===a.name?'true':'false');
+      b.setAttribute('aria-pressed', picks.driver===a.key?'true':'false');
       b.innerHTML='<span class="face" style="background:linear-gradient(135deg,#3E7BFA,#5AA0FF)">'+FILM+'</span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">形象视频</span>';
-      b.onclick=function(){ selectAva(a.name); };
+      b.onclick=function(){ selectAva(a); };
+      addDelBtn(b,a,updateAvaUI);
       g.appendChild(b);
     });
     if(!vids.length) g.appendChild(emptyTip('还没有形象视频 —— 点「＋」上传一段驱动视频'));
     var add=document.createElement('button'); add.type='button'; add.className='opt add';
     add.innerHTML='<span style="font-size:18px;line-height:0">＋</span>上传形象视频';
-    add.onclick=function(){ upload('video',function(nm){ if(nm){ picks.driver=nm; picks.avaName=shortName(nm); } loadAssets().then(updateAvaUI); }); };
+    add.onclick=function(){ upload('video',function(sig){ picks.driver=sig.key; picks.avaName=shortName(keyName(sig.key)); loadAssets().then(updateAvaUI); }); };
     g.appendChild(add);
   }
-  function selectAva(name){ picks.driver=name; picks.avaName=shortName(name); renderAva(); updateAvaUI(); }
+  function selectAva(a){ picks.driver=a.key; picks.avaName=shortName(a.name); renderAva(); updateAvaUI(); }
   function updateAvaUI(){ var has=!!picks.driver; markStep('s1',has); setPickLabel('ava',picks.avaName||'—'); setChip('ava','形象',picks.avaName||'未选',has); refresh(); }
 
   // ---------- ② 声音(预置 云希/晓晓 + audio 素材当克隆声样) ----------
@@ -337,44 +427,47 @@
     });
     ASSETS.filter(function(a){return a.kind==='audio';}).forEach(function(a){
       var b=document.createElement('button'); b.type='button'; b.className='opt opt-voice';
-      b.setAttribute('aria-pressed',(picks.voice==='克隆'&&picks.voice_ref===a.name)?'true':'false');
+      b.setAttribute('aria-pressed',(picks.voice==='克隆'&&picks.voice_ref===a.key)?'true':'false');
       b.innerHTML='<span class="play">'+PLAY+'</span><span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">克隆 · 我的声音</span><span class="wave"></span></span>';
-      b.onclick=function(){ selectVoiceClone(a.name); };
+      b.onclick=function(){ selectVoiceClone(a); };
+      addDelBtn(b,a,updateVoiceUI);
       g.appendChild(b);
     });
     var add=document.createElement('button'); add.type='button'; add.className='opt add';
     add.innerHTML='<span style="font-size:18px;line-height:0">＋</span>上传声样克隆';
-    add.onclick=function(){ upload('audio',function(nm){ if(nm){ picks.voice='克隆'; picks.voice_ref=nm; picks.voiceLabel=shortName(nm); } loadAssets().then(updateVoiceUI); }); };
+    add.onclick=function(){ upload('audio',function(sig){ picks.voice='克隆'; picks.voice_ref=sig.key; picks.voiceLabel=shortName(keyName(sig.key)); loadAssets().then(updateVoiceUI); }); };
     g.appendChild(add);
     Array.prototype.forEach.call(g.querySelectorAll('.wave'), fillWave);
   }
   function selectVoicePreset(name){ picks.voice=name; picks.voice_ref=null; picks.voiceLabel=name; renderVoice(); updateVoiceUI(); }
-  function selectVoiceClone(name){ picks.voice='克隆'; picks.voice_ref=name; picks.voiceLabel=shortName(name); renderVoice(); updateVoiceUI(); }
+  function selectVoiceClone(a){ picks.voice='克隆'; picks.voice_ref=a.key; picks.voiceLabel=shortName(a.name); renderVoice(); updateVoiceUI(); }
   function updateVoiceUI(){
     var has=!!picks.voice;
     var lbl = picks.voice==='克隆' ? ('克隆·'+(picks.voiceLabel||'')) : (picks.voice||'');
     markStep('s2',has); setPickLabel('voice',lbl||'—'); setChip('voice','声音',lbl||'未选',has); refresh();
   }
 
-  // ---------- ④ 商家图(image 素材,多选 → asset_imgs;可空) ----------
+  // ---------- ④ 商家图(image 素材,多选 → asset_imgs=OSS key 数组;可空) ----------
   function renderImgs(){
     var g=document.getElementById('grid-imgs'); g.innerHTML='';
     var imgs=ASSETS.filter(function(a){return a.kind==='image';});
     imgs.forEach(function(a){
-      var on=picks.imgs.indexOf(a.name)>=0;
+      var on=picks.imgs.indexOf(a.key)>=0;
       var b=document.createElement('button'); b.type='button'; b.className='opt opt-ava';
       b.setAttribute('aria-pressed',on?'true':'false');
-      b.innerHTML='<span class="face" style="background:linear-gradient(135deg,#12B39A,#4FD9BE)">'+PIC+'</span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">商家图</span>';
-      b.onclick=function(){ toggleImg(a.name); };
+      // 图片给真实缩略图(公读 url),加载失败回退图标
+      b.innerHTML='<span class="face thumb-face" style="background:linear-gradient(135deg,#12B39A,#4FD9BE)"><img class="thumb" src="'+esc(a.url)+'" alt="" onerror="this.style.display=\'none\'"></span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">商家图</span>';
+      b.onclick=function(){ toggleImg(a.key); };
+      addDelBtn(b,a,updateImgUI);
       g.appendChild(b);
     });
     if(!imgs.length) g.appendChild(emptyTip('可选 —— 上传商家实拍图,选了走图文编排,不选则纯口播'));
     var add=document.createElement('button'); add.type='button'; add.className='opt add';
     add.innerHTML='<span style="font-size:18px;line-height:0">＋</span>上传商家图';
-    add.onclick=function(){ upload('image',function(){ loadAssets(); }); };
+    add.onclick=function(){ upload('image',function(){ loadAssets().then(updateImgUI); }); };
     g.appendChild(add);
   }
-  function toggleImg(name){ var i=picks.imgs.indexOf(name); if(i>=0) picks.imgs.splice(i,1); else picks.imgs.push(name); renderImgs(); updateImgUI(); }
+  function toggleImg(key){ var i=picks.imgs.indexOf(key); if(i>=0) picks.imgs.splice(i,1); else picks.imgs.push(key); renderImgs(); updateImgUI(); }
   function updateImgUI(){ var n=picks.imgs.length; markStep('simg',n>0); setPickLabel('imgs', n?(n+' 张'):'—'); setChip('imgs','商家图', n?(n+' 张'):'未选', n>0); }
 
   // ---------- ③ 模板(静态预置,前端中文名 → 后端 tpl) ----------
