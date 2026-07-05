@@ -43,8 +43,17 @@ POST /jobs
        asset_imgs: 商家图 OSS key 数组(可空;非空走图文编排,空则纯口播)
 
 GET  /jobs/<id>
-     -> 200 {id, status:queued|running|done|failed, progress?, url?, error?, ...}
+     -> 200 {id, status:queued|running|done|failed, progress?, url?, error?, log_tail, ...}
+        log_tail = worker 实时日志的最后 ~1KB(完整日志走 /jobs/<id>/log)
      -> 404 {error}                                          (前端轮询查状态)
+
+POST /jobs/<id>/log
+     body(JSON): {chunk: "<这批新日志行>"}
+     -> 200 {ok:true}      worker 逐块实时回传日志,累积到 <id>.log(只保留尾部 ~20KB)
+     -> 404 {error}
+GET  /jobs/<id>/log
+     -> 200 <text/plain>   该任务累积的实时日志纯文本,给前端/curl 实时拉取
+     -> 404 no such job
 
 GET  /jobs/next
      -> 200 <job JSON>     取一个最早的 queued 任务,标记 running + 记 lease 时间
@@ -80,6 +89,8 @@ PORT = int(os.environ.get("KRVOICE_PORT", "8000"))
 DATA = os.path.expanduser(os.environ.get("KRVOICE_DATA", "~/krvoice-data"))
 JOBS = os.path.join(DATA, "jobs")
 PUB = os.path.join(DATA, "pub")
+LOGS = os.path.join(DATA, "logs")                          # worker 实时日志:<id>.log
+LOG_CAP = int(os.environ.get("KRVOICE_LOG_CAP", str(20 * 1024)))  # 单任务日志保留尾部字节数
 WEB = os.path.dirname(os.path.abspath(__file__))          # web-koubo/ 静态目录
 LEASE_TIMEOUT = int(os.environ.get("KRVOICE_LEASE_TIMEOUT", str(30 * 60)))  # 秒
 
@@ -93,6 +104,7 @@ PRESIGN_EXPIRE = 3600                        # 预签名 PUT 有效期(秒)
 
 os.makedirs(JOBS, exist_ok=True)
 os.makedirs(PUB, exist_ok=True)
+os.makedirs(LOGS, exist_ok=True)
 
 # 素材类型(按扩展名推断)
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -210,6 +222,50 @@ def all_jobs():
     return out
 
 
+# ---------------- 实时日志(worker 逐块 POST,前端/curl 逐块 GET) ----------------
+def lpath(i):
+    return os.path.join(LOGS, f"{i}.log")
+
+
+def append_log(i, chunk):
+    """把 worker 传来的一批日志追加到 <id>.log,只保留尾部 LOG_CAP 字节(防无限膨胀)。"""
+    data = (chunk or "")
+    if not data:
+        return
+    with lock:
+        try:
+            with open(lpath(i), "a", encoding="utf-8", errors="replace") as f:
+                f.write(data)
+            # 截断:超出上限时只留尾部 LOG_CAP
+            sz = os.path.getsize(lpath(i))
+            if sz > LOG_CAP:
+                with open(lpath(i), "rb") as f:
+                    f.seek(sz - LOG_CAP)
+                    tail = f.read()
+                # 尽量从一个换行处切,避免半行乱码
+                nl = tail.find(b"\n")
+                if 0 <= nl < len(tail) - 1:
+                    tail = tail[nl + 1:]
+                with open(lpath(i), "wb") as f:
+                    f.write(tail)
+        except Exception:
+            pass
+
+
+def read_log(i, tail=None):
+    """读回累积日志(整段或尾部 tail 字节)。文件不存在返回空串。"""
+    try:
+        with open(lpath(i), "rb") as f:
+            if tail:
+                f.seek(0, 2)
+                sz = f.tell()
+                f.seek(max(0, sz - tail))
+            data = f.read()
+        return data.decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
 # ---------------- 素材库(阿里云 OSS:预签名直传 / 列出 / 删除) ----------------
 @app.get("/oss/presign")
 def oss_presign():
@@ -316,8 +372,27 @@ def status(i):
     j = load(i)
     if not j:
         return jsonify({"error": "no such job"}), 404
-    j = {k: v for k, v in j.items() if k != "log"}  # log 不回给前端
+    j = {k: v for k, v in j.items() if k != "log"}  # 旧 log 字段不回给前端
+    j["log_tail"] = read_log(i, tail=1024)          # 最后 ~1KB,快速瞥一眼;完整日志走 /jobs/<id>/log
     return jsonify(j), 200
+
+
+@app.post("/jobs/<i>/log")
+def append_job_log(i):
+    """worker 实时逐块回传日志:body {chunk:"<这批新日志行>"} 追加到 <id>.log。"""
+    if not load(i):
+        return jsonify({"error": "no such job"}), 404
+    b = request.get_json(force=True, silent=True) or {}
+    append_log(i, b.get("chunk", ""))
+    return jsonify({"ok": True}), 200
+
+
+@app.get("/jobs/<i>/log")
+def get_job_log(i):
+    """返回该任务累积的实时日志纯文本(text/plain),给前端/curl 实时拉取。"""
+    if not load(i):
+        return ("no such job\n", 404, {"Content-Type": "text/plain; charset=utf-8"})
+    return (read_log(i), 200, {"Content-Type": "text/plain; charset=utf-8"})
 
 
 @app.get("/jobs/next")

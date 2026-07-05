@@ -62,9 +62,11 @@ worker 端只用 `requests` 匿名 GET 公读 URL,**不需要 `oss2`、不需要
 | `GET /assets` | 前端 | → `200 [{key, name(去 assets/ 前缀), kind(video\|audio\|image\|other), size, url(公读)}, ...]` 列 OSS `assets/` 前缀对象。未配置 → `500` |
 | `DELETE /assets?key=<key>` | 前端 | → `200 {ok:true}` 删除一个 OSS 对象;key 非法(非 `assets/` 前缀)→ `400`;未配置 → `500` |
 | `POST /jobs` | 前端提交 | body(JSON)`{text, tpl?, voice?, driver?, voice_ref?, asset_imgs?, avatar?, desc?}` → `201 {id, status:"queued", check}`;`text` 必填,缺 → `400`。素材字段见下表 |
-| `GET /jobs/<id>` | 前端轮询 | → `200 {id, status:queued\|running\|done\|failed, progress?, url?, error?, ...}`;无 → `404`(`log` 字段不下发) |
+| `GET /jobs/<id>` | 前端轮询 | → `200 {id, status:queued\|running\|done\|failed, progress?, url?, error?, log_tail, ...}`;无 → `404`。`log_tail`=实时日志最后 ~1KB,快速瞥一眼(完整日志走 `/jobs/<id>/log`);旧 `log` 字段不下发 |
 | `GET /jobs/next` | worker 拉 | → `200 <job JSON>`(取最早 queued,标记 running + 记 lease);无 → `204` |
 | `POST /jobs/<id>/status` | worker 汇报(可选) | body(JSON)`{status?, progress?}` → `200 {ok:true}`;无 job → `404` |
+| `POST /jobs/<id>/log` | worker 实时回传日志 | body(JSON)`{chunk:"<这批新日志行>"}` → `200 {ok:true}`;无 job → `404`。累积到 `logs/<id>.log`,只保留尾部 ~20KB(`KRVOICE_LOG_CAP` 字节可调) |
+| `GET /jobs/<id>/log` | 前端/curl 实时看 | → `200 <text/plain>` 该任务累积的实时日志纯文本;无 job → `404`。**任何人 curl 就能实时看到 worker 干到哪** |
 | `POST /jobs/<id>/result` | worker 回传 | multipart:`status=done\|failed`,done 带 `file=<mp4>`,failed 带 `error=<原因>` → `200 {ok:true, url?}`。done 时成片存 `pub/<id>.mp4`,`job.url="/pub/<id>.mp4"` |
 | `GET /pub/<file>` | 浏览器/worker | 下载成片(video/mp4) |
 
@@ -86,9 +88,42 @@ worker 端只用 `requests` 匿名 GET 公读 URL,**不需要 `oss2`、不需要
 下次 `GET /jobs/next` 时自动退回 queued,防 worker 掉线卡死。
 
 **其他环境变量**:
-- `KRVOICE_DATA`(默认 `~/krvoice-data`)—— 任务/成片存放目录。
+- `KRVOICE_DATA`(默认 `~/krvoice-data`)—— 任务/成片/**实时日志(`logs/<id>.log`)** 存放目录。
 - `KRVOICE_PORT`(默认 `8000`)。
 - `KRVOICE_LEASE_TIMEOUT`(默认 `1800` 秒)。
+- `KRVOICE_LOG_CAP`(默认 `20480` 字节)—— 单任务实时日志只保留尾部这么多,防无限膨胀。
+
+## worker 实时日志(不再是黑盒)
+
+worker 从前用 `subprocess.run(capture_output=True)` 把 `produce.sh` 输出全吞进内存,失败只在
+`result` 里给一段截断日志——是个黑盒。现在改成 **`subprocess.Popen` + 逐行读**,边跑边把日志实时
+回传队列中心,任何人 curl 就能看到 worker 干到哪、卡在哪、报什么错。
+
+**日志怎么流转**:
+
+```
+produce.sh(逐阶段 echo:抽参考音/克隆/LatentSync/编排)
+  │  worker 用 Popen 合并 stdout+stderr 逐行读
+  ├─ 追加到本地 /content/pull_worker.log(Colab 端直接看)
+  └─ 攒够 ~10 行或每 ~2.5s → POST /jobs/<id>/log {chunk}  ──▶  队列中心累积到 logs/<id>.log(尾部 20KB)
+                                                                      │
+   前端进度弹窗轮询 GET /jobs/<id>/log ◀────── 任何人 curl GET /jobs/<id>/log ◀┘
+   (等宽字体滚动显示,失败标红)              (纯文本,实时)
+```
+
+worker 还在关键阶段打醒目标记行并更新 `progress`:领任务 → `▶ 下载素材`(10)→ `✔ 素材下载完成`
+→ `▶ 开始出片`(30)→ `✔ 出片成功`(95)→ `▶ 回传成片`;空闲时每约 1 分钟打一次心跳,证明它还活着。
+失败/超时/异常都会打醒目标记行。**详细过程日志已实时传过,不再依赖结束时那一坨。**
+
+**curl 实时看某任务日志**:
+
+```bash
+# 一次性看当前累积日志
+curl https://krvoice.cicy-ai.com/jobs/<id>/log
+
+# 每 2 秒刷新,像 tail -f 一样盯着 worker 干活
+watch -n2 curl -s https://krvoice.cicy-ai.com/jobs/<id>/log
+```
 
 ## 前端上传按钮(直传 OSS,带进度条)
 
