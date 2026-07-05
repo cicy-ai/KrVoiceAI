@@ -1,23 +1,33 @@
 #!/bin/bash
 # LatentSync 一键出片（任意 GPU 机器：Colab / RunPod / 云 GPU 均可）
-# 用法: bash latentsync.sh <视频路径> [口播文案]
-# 例:   bash latentsync.sh /workspace/input_video.mp4
+# 用法: bash latentsync.sh <视频路径> [口播文案] [音色]
+#   SETUP_ONLY=1  只装环境(clone + 依赖 + 模型),不出片。装一次,后续所有出片复用。
+#   LS_HOME=...   LatentSync 安装位置。默认在 /content(Colab) 或 /workspace(RunPod) 下,
+#                 固定复用,**不随 worker 每个任务的临时 WORKDIR 重装**。
 set -e
 
-# 工作目录自适应：RunPod 用 /workspace，Colab 用 /content，否则当前目录
+# 任务工作目录(worker 每个任务是临时目录);出片产物拷回这里给 produce.sh 用
 WORKDIR="${WORKDIR:-$([ -d /workspace ] && echo /workspace || ([ -d /content ] && echo /content || pwd))}"
 VIDEO="${1:-$WORKDIR/input_video.mp4}"
 TEXT="${2:-大家好，欢迎观看这条由数字人生成的口播视频，效果测试。}"
 # 音色：男声 云希(默认) / 云健；女声 zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural
 VOICE="${3:-zh-CN-YunxiNeural}"
+SETUP_ONLY="${SETUP_ONLY:-0}"
 
-if [ ! -f "$VIDEO" ]; then echo "❌ 找不到视频: $VIDEO（把视频放到 $WORKDIR/input_video.mp4，或传路径做第1个参数）"; exit 1; fi
+# LatentSync 代码 + 依赖 + 模型装在**固定位置**,装一次所有任务复用(独立于临时 WORKDIR)
+LS_BASE="$([ -d /workspace ] && echo /workspace || ([ -d /content ] && echo /content || echo "$HOME"))"
+LS_HOME="${LS_HOME:-$LS_BASE/LatentSync}"
 
-cd "$WORKDIR"
-[ -d LatentSync ] || git clone https://github.com/bytedance/LatentSync.git
-cd LatentSync
+# 出片时才需要视频;只装环境模式(SETUP_ONLY)不需要
+if [ "$SETUP_ONLY" != "1" ] && [ ! -f "$VIDEO" ]; then
+  echo "❌ 找不到视频: $VIDEO（把视频放到 $WORKDIR/input_video.mp4，或传路径做第1个参数）"; exit 1
+fi
 
-# 1) 依赖（只装一次）
+# clone LatentSync 到固定位置(只一次)
+[ -d "$LS_HOME/.git" ] || git clone https://github.com/bytedance/LatentSync.git "$LS_HOME"
+cd "$LS_HOME"
+
+# 1) 依赖（只装一次,.deps_done 做标记）
 if [ ! -f .deps_done ]; then
   echo "== 安装依赖(约5-10分钟) =="
   apt-get -qq -y install libgl1 >/dev/null 2>&1 || true
@@ -41,7 +51,16 @@ if [ ! -f checkpoints/latentsync_unet.pt ]; then
   huggingface-cli download ByteDance/LatentSync-1.6 latentsync_unet.pt --local-dir checkpoints
 fi
 
-# 3) 输入视频 + edge-tts 口播音频
+# 只装环境模式:装完 clone/依赖/模型就自检 + 退出(不出片)
+if [ "$SETUP_ONLY" = "1" ]; then
+  echo ""
+  echo "✅ 环境就绪(装一次,后续所有出片复用): $LS_HOME"
+  echo "   依赖: $([ -f .deps_done ] && echo 已装 || echo 缺)  |  模型: $([ -f checkpoints/latentsync_unet.pt ] && echo 已下 || echo 缺)"
+  python -c "import torch;print('   torch',torch.__version__,'| CUDA 可用',torch.cuda.is_available(),'|',torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no-gpu')" 2>/dev/null || echo "   ⚠️ torch import 失败(依赖没装全)"
+  exit 0
+fi
+
+# 3) 输入视频 + edge-tts 口播音频(在 LS_HOME 里跑,worker 串行不冲突)
 cp "$VIDEO" input_video.mp4
 if [ -n "$AUDIO_FILE" ] && [ -f "$AUDIO_FILE" ]; then
   echo "== 使用外部音频(克隆音): $AUDIO_FILE =="
@@ -68,12 +87,15 @@ if python -m scripts.inference \
     --video_out_path "video_out.mp4"; then
   ELAPSED=$(( $(date +%s) - T0 ))
   echo ""
-  echo "✅ 完成 -> $WORKDIR/LatentSync/video_out.mp4"
+  echo "✅ 完成 -> $LS_HOME/video_out.mp4"
   echo "⏱ 出片结束: $(date '+%Y-%m-%d %H:%M:%S')"
   echo "⏱ 本条出片耗时: ${ELAPSED} 秒 ($((ELAPSED/60))分$((ELAPSED%60))秒)"
   # 视频时长，方便算"每秒视频要多久"
   DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 video_out.mp4 2>/dev/null | cut -d. -f1)
   [ -n "$DUR" ] && [ "$DUR" -gt 0 ] && echo "⏱ 成片 ${DUR}s，约 $(echo "scale=1;$ELAPSED/$DUR"|bc 2>/dev/null||echo '?') 秒/秒视频"
+  # 产物拷回 produce.sh 期望的位置($WORKDIR/LatentSync/video_out.mp4)
+  mkdir -p "$WORKDIR/LatentSync"
+  cp video_out.mp4 "$WORKDIR/LatentSync/video_out.mp4"
 else
   echo ""
   echo "❌ 512 显存不足(OOM)。LatentSync-1.6 是 512 模型，T4(16GB)跑不动。"
