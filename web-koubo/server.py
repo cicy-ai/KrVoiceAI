@@ -136,6 +136,20 @@ def public_url(key):
     return f"{oss_public_base()}/{quote(key, safe='/')}"
 
 
+def signed_get_url(key):
+    """预签名 GET URL(授权访问,绕过桶'阻止公共访问';有效期够 worker 下载出片)。
+    OSS 未配置或 key 为空则回退公读 URL(至少不崩)。"""
+    if not key:
+        return ""
+    b = oss_bucket()
+    if b is None:
+        return public_url(key)
+    try:
+        return b.sign_url("GET", key, 7200, slash_safe=True)
+    except Exception:
+        return public_url(key)
+
+
 def safe_key(filename):
     """原名 -> assets/<时间戳_uuid_安全化原名>,ASCII 安全,防冲突/穿越。"""
     base = os.path.basename((filename or "").replace("\\", "/")).strip() or "file"
@@ -328,7 +342,12 @@ def next_job():
         j["lease"] = now
         j["started"] = time.strftime("%F %T")
         save(j)
-        return jsonify(j), 200
+    # 下发给 worker 时把素材 key 换成预签名 GET URL(桶禁公读,worker 用签名 URL 下载)
+    out = dict(j)
+    out["driver"] = signed_get_url(j.get("driver", ""))
+    out["voice_ref"] = signed_get_url(j.get("voice_ref", ""))
+    out["asset_imgs"] = [signed_get_url(k) for k in (j.get("asset_imgs") or [])]
+    return jsonify(out), 200
 
 
 @app.post("/jobs/<i>/status")
