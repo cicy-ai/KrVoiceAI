@@ -13,14 +13,27 @@
   $KRVOICE_DATA/jobs/<id>.json   任务元数据
   $KRVOICE_DATA/pub/<id>.mp4     成片
 
+数据落地(素材库,默认 ~/cicy-ai/assets,可用环境变量 KRVOICE_ASSETS 覆盖):
+  $KRVOICE_ASSETS/<文件名>        用户上传的驱动视频/声样/商家图,worker 直接 HTTP 拉取
+
 ============================ API 契约 ============================
 GET  /                     -> index.html(口播工坊前端)
 GET  /<静态文件>            -> web-koubo/ 同目录静态资源
 
+GET  /assets               -> 200 [{name, kind(video|audio|image|other), size, mtime}, ...] 列出素材
+POST /assets               (multipart) 字段 file=<文件>
+     -> 201 {name, kind}   存到 ASSETS_DIR,同名加序号避免覆盖
+GET  /assets/<file>        -> 下载素材(worker 用;只允许 basename,防路径穿越)
+DELETE /assets/<file>      -> 200 {ok:true} 删除一个素材;无 -> 404
+
 POST /jobs
-     body(JSON): {text, tpl?, avatar?, voice?, desc?, use_assets?, driver?}
+     body(JSON): {text, tpl?, voice?, driver?, voice_ref?, asset_imgs?, avatar?, desc?}
      -> 201 {id, status:"queued", check:"/jobs/<id>"}      (前端提交)
      text 必填,缺失 400。
+       driver:     驱动视频素材文件名(worker 从 /assets/<driver> 下载)
+       voice:      "云希"|"晓晓"|"克隆"(云希/晓晓→edge-tts;克隆→声音克隆)
+       voice_ref:  声样素材文件名(voice=="克隆"时用,空则回退驱动视频本人)
+       asset_imgs: 商家图素材文件名数组(可空;非空走图文编排,空则纯口播)
 
 GET  /jobs/<id>
      -> 200 {id, status:queued|running|done|failed, progress?, url?, error?, ...}
@@ -59,11 +72,55 @@ PORT = int(os.environ.get("KRVOICE_PORT", "8000"))
 DATA = os.path.expanduser(os.environ.get("KRVOICE_DATA", "~/krvoice-data"))
 JOBS = os.path.join(DATA, "jobs")
 PUB = os.path.join(DATA, "pub")
+# 素材库(用户上传的驱动视频/声样/商家图),worker 从 GET /assets/<file> 拉取。
+ASSETS = os.path.expanduser(os.environ.get("KRVOICE_ASSETS", "~/cicy-ai/assets"))
 WEB = os.path.dirname(os.path.abspath(__file__))          # web-koubo/ 静态目录
 LEASE_TIMEOUT = int(os.environ.get("KRVOICE_LEASE_TIMEOUT", str(30 * 60)))  # 秒
 
 os.makedirs(JOBS, exist_ok=True)
 os.makedirs(PUB, exist_ok=True)
+os.makedirs(ASSETS, exist_ok=True)
+
+# 素材类型(按扩展名推断)
+VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+AUDIO_EXT = {".m4a", ".mp3", ".wav", ".aac", ".amr", ".ogg", ".flac"}
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+
+
+def asset_kind(name):
+    e = os.path.splitext(name)[1].lower()
+    if e in VIDEO_EXT:
+        return "video"
+    if e in AUDIO_EXT:
+        return "audio"
+    if e in IMAGE_EXT:
+        return "image"
+    return "other"
+
+
+def safe_asset(name):
+    """把外部传入的素材名收敛成 ASSETS 下的合法路径,防路径穿越(只允许 basename)。"""
+    base = os.path.basename((name or "").replace("\\", "/"))
+    if not base or base in (".", ".."):
+        return None
+    full = os.path.normpath(os.path.join(ASSETS, base))
+    if os.path.dirname(full) != os.path.normpath(ASSETS):
+        return None
+    return full
+
+
+def unique_asset_name(name):
+    """同名加序号,避免覆盖已存在素材。"""
+    base = os.path.basename((name or "file").replace("\\", "/")) or "file"
+    if not os.path.exists(os.path.join(ASSETS, base)):
+        return base
+    stem, ext = os.path.splitext(base)
+    n = 1
+    while True:
+        cand = f"{stem}-{n}{ext}"
+        if not os.path.exists(os.path.join(ASSETS, cand)):
+            return cand
+        n += 1
 
 app = Flask(__name__, static_folder=None)
 lock = threading.Lock()
@@ -79,7 +136,7 @@ def _preflight():
 @app.after_request
 def _cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return resp
 
@@ -112,6 +169,50 @@ def all_jobs():
             if j:
                 out.append(j)
     return out
+
+
+# ---------------- 素材库(上传/列出/下载/删除) ----------------
+@app.get("/assets")
+def list_assets():
+    out = []
+    for f in sorted(os.listdir(ASSETS)):
+        full = os.path.join(ASSETS, f)
+        if os.path.isfile(full):
+            st = os.stat(full)
+            out.append({
+                "name": f,
+                "kind": asset_kind(f),
+                "size": st.st_size,
+                "mtime": int(st.st_mtime),
+            })
+    return jsonify(out), 200
+
+
+@app.post("/assets")
+def upload_asset():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "缺少上传文件字段 file"}), 400
+    name = unique_asset_name(f.filename)
+    f.save(os.path.join(ASSETS, name))
+    return jsonify({"name": name, "kind": asset_kind(name)}), 201
+
+
+@app.get("/assets/<path:fname>")
+def get_asset(fname):
+    full = safe_asset(fname)
+    if not full or not os.path.isfile(full):
+        abort(404)
+    return send_file(full)
+
+
+@app.delete("/assets/<path:fname>")
+def delete_asset(fname):
+    full = safe_asset(fname)
+    if not full or not os.path.isfile(full):
+        abort(404)
+    os.remove(full)
+    return jsonify({"ok": True}), 200
 
 
 # ---------------- 静态页 ----------------
@@ -147,8 +248,9 @@ def submit():
         "avatar": b.get("avatar", ""),
         "voice": b.get("voice", ""),
         "desc": b.get("desc", ""),
-        "use_assets": bool(b.get("use_assets", True)),
-        "driver": b.get("driver", ""),
+        "driver": b.get("driver", ""),           # 驱动视频素材文件名(worker 从 /assets 下载)
+        "voice_ref": b.get("voice_ref", ""),     # 声样素材文件名(voice=="克隆"时用)
+        "asset_imgs": list(b.get("asset_imgs") or []),  # 商家图素材文件名数组(可空)
     }
     with lock:
         save(j)

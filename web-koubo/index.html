@@ -167,13 +167,7 @@
         <span class="hint">谁来说</span>
         <span class="tick">已选 · <span data-pick="ava">—</span></span>
       </div>
-      <div class="grid g-ava" data-group="ava">
-        <button class="opt opt-ava" aria-pressed="false" data-name="知性女主播"><span class="face" style="background:linear-gradient(135deg,#EC6A9C,#F5A2B8)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">晴岚</span><span class="tg">知性女主播</span></button>
-        <button class="opt opt-ava" aria-pressed="false" data-name="沉稳男主播"><span class="face" style="background:linear-gradient(135deg,#3E7BFA,#5AA0FF)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">正霖</span><span class="tg">沉稳男主播</span></button>
-        <button class="opt opt-ava" aria-pressed="false" data-name="活力种草员"><span class="face" style="background:linear-gradient(135deg,#F1502F,#FF9147)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">小柚</span><span class="tg">活力种草员</span></button>
-        <button class="opt opt-ava" aria-pressed="false" data-name="行业专家"><span class="face" style="background:linear-gradient(135deg,#12B39A,#4FD9BE)"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-6.5 8-6.5s8 2 8 6.5z"/></svg></span><span class="nm">程博士</span><span class="tg">行业专家</span></button>
-        <button class="opt add" data-add="1"><span style="font-size:18px;line-height:0">＋</span>定制我的形象</button>
-      </div>
+      <div class="grid g-ava" data-group="ava" id="grid-ava"></div>
     </section>
 
     <section class="step" id="s2">
@@ -181,12 +175,7 @@
         <span class="hint">用什么声线</span>
         <span class="tick">已选 · <span data-pick="voice">—</span></span>
       </div>
-      <div class="grid g-voice" data-group="voice">
-        <button class="opt opt-voice" aria-pressed="false" data-name="云希·男声"><span class="play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span><span class="nm">云希</span><span class="tg">自然男声</span><span class="wave"></span></span></button>
-        <button class="opt opt-voice" aria-pressed="false" data-name="晓晓·女声"><span class="play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span><span class="nm">晓晓</span><span class="tg">亲和女声</span><span class="wave"></span></span></button>
-        <button class="opt opt-voice" aria-pressed="false" data-name="我的克隆声"><span class="play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span><span class="nm">我的声音</span><span class="tg">克隆 · 老板本人</span><span class="wave"></span></span></button>
-        <button class="opt add" data-add="1"><span style="font-size:18px;line-height:0">＋</span>克隆新声音</button>
-      </div>
+      <div class="grid g-voice" data-group="voice" id="grid-voice"></div>
     </section>
 
     <section class="step" id="s3">
@@ -202,8 +191,16 @@
       </div>
     </section>
 
+    <section class="step" id="simg">
+      <div class="step-h"><span class="n">4</span><b>商家图（可选）</b>
+        <span class="hint">选了走图文编排，不选纯口播</span>
+        <span class="tick">已选 · <span data-pick="imgs">—</span></span>
+      </div>
+      <div class="grid g-ava" data-group="imgs" id="grid-imgs"></div>
+    </section>
+
     <section class="step script" id="s4">
-      <div class="step-h"><span class="n">4</span><b>写口播文案</b>
+      <div class="step-h"><span class="n">5</span><b>写口播文案</b>
         <span class="hint">不会写？点 AI 帮你</span>
         <span class="tick">已填 · <span data-pick="txt">—</span></span>
       </div>
@@ -223,6 +220,7 @@
     <span class="chip" data-sum="ava"><span class="k">形象</span> 未选</span>
     <span class="chip" data-sum="voice"><span class="k">声音</span> 未选</span>
     <span class="chip" data-sum="tpl"><span class="k">模板</span> 未选</span>
+    <span class="chip" data-sum="imgs"><span class="k">商家图</span> 未选</span>
     <span class="chip" data-sum="txt"><span class="k">文案</span> 0 字</span>
   </div>
   <div class="gen-right">
@@ -256,35 +254,147 @@
 
 <script>
 (function(){
-  document.querySelectorAll('.wave').forEach(function(w){
-    var h=[7,13,20,11,16,8,14,19,10,15,6,12];
-    w.innerHTML=h.map(function(v){return '<i style="height:'+v+'px"></i>'}).join('');
-  });
-  var picks={ava:null,voice:null,tpl:null,txt:0};
-  function singleSelect(group,btn){
-    document.querySelectorAll('[data-group="'+group+'"] .opt').forEach(function(o){o.setAttribute('aria-pressed','false')});
-    btn.setAttribute('aria-pressed','true');
-    picks[group]=btn.dataset.name;
-    document.querySelector('#s'+({ava:1,voice:2,tpl:3}[group])).classList.add('done');
-    document.querySelector('[data-pick="'+group+'"]').textContent=btn.dataset.name;
-    var chip=document.querySelector('[data-sum="'+group+'"]');
-    chip.classList.add('set');
-    chip.innerHTML='<span class="k">'+({ava:'形象',voice:'声音',tpl:'模板'}[group])+'</span> '+btn.dataset.name;
-    refresh();
+  // ============ 素材库(driver=视频 / voice_ref=声样 / asset_imgs=商家图)============
+  // 前端和队列中心(server.py)同源:直接打相对路径 /assets、/jobs、/pub。
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function shortName(n){ n=String(n); return n.length>18 ? n.slice(0,15)+'…'+n.slice(-3) : n; }
+
+  var FILM='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5v14M16 5v14M4 12h16"/></svg>';
+  var PIC='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M5 17l4-4 3 3 3-4 4 5"/></svg>';
+  var PLAY='<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+
+  var picks={driver:null,avaName:null,voice:null,voiceLabel:null,voice_ref:null,tpl:null,tplName:null,imgs:[],txt:0};
+  var ASSETS=[];
+
+  var go=document.getElementById('go');
+  function refresh(){
+    var ok=picks.driver&&picks.voice&&picks.tpl&&picks.txt>0;
+    go.disabled=!ok;
+    document.getElementById('etas').textContent = picks.txt>120?'~3':'~2';
   }
-  document.querySelectorAll('.opt').forEach(function(btn){
+  function markStep(id,on){ var el=document.getElementById(id); if(el) el.classList.toggle('done',!!on); }
+  function setPickLabel(key,txt){ var el=document.querySelector('[data-pick="'+key+'"]'); if(el) el.textContent=txt; }
+  function setChip(key,label,val,set){ var c=document.querySelector('[data-sum="'+key+'"]'); if(!c) return; c.classList.toggle('set',!!set); c.innerHTML='<span class="k">'+label+'</span> '+esc(val); }
+  function fillWave(w){ var h=[7,13,20,11,16,8,14,19,10,15,6,12]; w.innerHTML=h.map(function(v){return '<i style="height:'+v+'px"></i>';}).join(''); }
+  function emptyTip(txt){ var t=document.createElement('div'); t.textContent=txt; t.style.cssText='grid-column:1/-1;color:var(--ink-2);font-size:13px;padding:8px 2px'; return t; }
+
+  // ---- 上传:multipart POST /assets(image 可多选);done 回调收到最后一个新文件名 ----
+  function upload(kind,cb){
+    var inp=document.createElement('input'); inp.type='file';
+    inp.accept = kind==='video'?'video/*' : kind==='audio'?'audio/*' : 'image/*';
+    if(kind==='image') inp.multiple=true;
+    inp.onchange=function(){
+      var files=Array.prototype.slice.call(inp.files||[]); if(!files.length) return;
+      var last=null;
+      (function next(i){
+        if(i>=files.length){ cb&&cb(last); return; }
+        var fd=new FormData(); fd.append('file',files[i]);
+        fetch('/assets',{method:'POST',body:fd})
+          .then(function(r){return r.json();})
+          .then(function(d){ if(d&&d.name) last=d.name; next(i+1); })
+          .catch(function(){ next(i+1); });
+      })(0);
+    };
+    inp.click();
+  }
+
+  function loadAssets(){
+    return fetch('/assets').then(function(r){return r.json();})
+      .then(function(l){ ASSETS=Array.isArray(l)?l:[]; renderAll(); })
+      .catch(function(){ ASSETS=[]; renderAll(); });
+  }
+  function renderAll(){ renderAva(); renderVoice(); renderImgs(); }
+
+  // ---------- ① 形象(video 素材 → driver) ----------
+  function renderAva(){
+    var g=document.getElementById('grid-ava'); g.innerHTML='';
+    var vids=ASSETS.filter(function(a){return a.kind==='video';});
+    vids.forEach(function(a){
+      var b=document.createElement('button'); b.type='button'; b.className='opt opt-ava';
+      b.setAttribute('aria-pressed', picks.driver===a.name?'true':'false');
+      b.innerHTML='<span class="face" style="background:linear-gradient(135deg,#3E7BFA,#5AA0FF)">'+FILM+'</span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">形象视频</span>';
+      b.onclick=function(){ selectAva(a.name); };
+      g.appendChild(b);
+    });
+    if(!vids.length) g.appendChild(emptyTip('还没有形象视频 —— 点「＋」上传一段驱动视频'));
+    var add=document.createElement('button'); add.type='button'; add.className='opt add';
+    add.innerHTML='<span style="font-size:18px;line-height:0">＋</span>上传形象视频';
+    add.onclick=function(){ upload('video',function(nm){ if(nm){ picks.driver=nm; picks.avaName=shortName(nm); } loadAssets().then(updateAvaUI); }); };
+    g.appendChild(add);
+  }
+  function selectAva(name){ picks.driver=name; picks.avaName=shortName(name); renderAva(); updateAvaUI(); }
+  function updateAvaUI(){ var has=!!picks.driver; markStep('s1',has); setPickLabel('ava',picks.avaName||'—'); setChip('ava','形象',picks.avaName||'未选',has); refresh(); }
+
+  // ---------- ② 声音(预置 云希/晓晓 + audio 素材当克隆声样) ----------
+  function renderVoice(){
+    var g=document.getElementById('grid-voice'); g.innerHTML='';
+    [['云希','自然男声'],['晓晓','亲和女声']].forEach(function(p){
+      var b=document.createElement('button'); b.type='button'; b.className='opt opt-voice';
+      b.setAttribute('aria-pressed',(picks.voice===p[0]&&!picks.voice_ref)?'true':'false');
+      b.innerHTML='<span class="play">'+PLAY+'</span><span><span class="nm">'+p[0]+'</span><span class="tg">'+p[1]+'</span><span class="wave"></span></span>';
+      b.onclick=function(){ selectVoicePreset(p[0]); };
+      g.appendChild(b);
+    });
+    ASSETS.filter(function(a){return a.kind==='audio';}).forEach(function(a){
+      var b=document.createElement('button'); b.type='button'; b.className='opt opt-voice';
+      b.setAttribute('aria-pressed',(picks.voice==='克隆'&&picks.voice_ref===a.name)?'true':'false');
+      b.innerHTML='<span class="play">'+PLAY+'</span><span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">克隆 · 我的声音</span><span class="wave"></span></span>';
+      b.onclick=function(){ selectVoiceClone(a.name); };
+      g.appendChild(b);
+    });
+    var add=document.createElement('button'); add.type='button'; add.className='opt add';
+    add.innerHTML='<span style="font-size:18px;line-height:0">＋</span>上传声样克隆';
+    add.onclick=function(){ upload('audio',function(nm){ if(nm){ picks.voice='克隆'; picks.voice_ref=nm; picks.voiceLabel=shortName(nm); } loadAssets().then(updateVoiceUI); }); };
+    g.appendChild(add);
+    Array.prototype.forEach.call(g.querySelectorAll('.wave'), fillWave);
+  }
+  function selectVoicePreset(name){ picks.voice=name; picks.voice_ref=null; picks.voiceLabel=name; renderVoice(); updateVoiceUI(); }
+  function selectVoiceClone(name){ picks.voice='克隆'; picks.voice_ref=name; picks.voiceLabel=shortName(name); renderVoice(); updateVoiceUI(); }
+  function updateVoiceUI(){
+    var has=!!picks.voice;
+    var lbl = picks.voice==='克隆' ? ('克隆·'+(picks.voiceLabel||'')) : (picks.voice||'');
+    markStep('s2',has); setPickLabel('voice',lbl||'—'); setChip('voice','声音',lbl||'未选',has); refresh();
+  }
+
+  // ---------- ④ 商家图(image 素材,多选 → asset_imgs;可空) ----------
+  function renderImgs(){
+    var g=document.getElementById('grid-imgs'); g.innerHTML='';
+    var imgs=ASSETS.filter(function(a){return a.kind==='image';});
+    imgs.forEach(function(a){
+      var on=picks.imgs.indexOf(a.name)>=0;
+      var b=document.createElement('button'); b.type='button'; b.className='opt opt-ava';
+      b.setAttribute('aria-pressed',on?'true':'false');
+      b.innerHTML='<span class="face" style="background:linear-gradient(135deg,#12B39A,#4FD9BE)">'+PIC+'</span><span class="nm">'+esc(shortName(a.name))+'</span><span class="tg">商家图</span>';
+      b.onclick=function(){ toggleImg(a.name); };
+      g.appendChild(b);
+    });
+    if(!imgs.length) g.appendChild(emptyTip('可选 —— 上传商家实拍图,选了走图文编排,不选则纯口播'));
+    var add=document.createElement('button'); add.type='button'; add.className='opt add';
+    add.innerHTML='<span style="font-size:18px;line-height:0">＋</span>上传商家图';
+    add.onclick=function(){ upload('image',function(){ loadAssets(); }); };
+    g.appendChild(add);
+  }
+  function toggleImg(name){ var i=picks.imgs.indexOf(name); if(i>=0) picks.imgs.splice(i,1); else picks.imgs.push(name); renderImgs(); updateImgUI(); }
+  function updateImgUI(){ var n=picks.imgs.length; markStep('simg',n>0); setPickLabel('imgs', n?(n+' 张'):'—'); setChip('imgs','商家图', n?(n+' 张'):'未选', n>0); }
+
+  // ---------- ③ 模板(静态预置,前端中文名 → 后端 tpl) ----------
+  var TPL_MAP={'知识科普':'knowledge','电商带货':'ecommerce','餐饮探店':'ecommerce','财经职场':'ecommerce'};
+  document.querySelectorAll('[data-group="tpl"] .opt').forEach(function(btn){
     btn.addEventListener('click',function(){
-      if(btn.classList.contains('add')){ btn.animate([{transform:'scale(1)'},{transform:'scale(.96)'},{transform:'scale(1)'}],{duration:180}); return; }
-      var g=btn.closest('[data-group]').dataset.group;
-      singleSelect(g,btn);
+      document.querySelectorAll('[data-group="tpl"] .opt').forEach(function(o){o.setAttribute('aria-pressed','false');});
+      btn.setAttribute('aria-pressed','true');
+      picks.tplName=btn.dataset.name; picks.tpl=TPL_MAP[btn.dataset.name]||'ecommerce';
+      markStep('s3',true); setPickLabel('tpl',btn.dataset.name); setChip('tpl','模板',btn.dataset.name,true); refresh();
     });
   });
+
+  // ---------- 文案 ----------
   var ta=document.getElementById('ta'), cc=document.getElementById('cc'), sec=document.getElementById('sec');
   function onText(){
     var n=ta.value.trim().length; picks.txt=n;
     cc.textContent=n; sec.textContent=Math.round(n/4.5);
-    var s4=document.getElementById('s4'); s4.classList.toggle('done',n>0);
-    document.querySelector('[data-pick="txt"]').textContent=n+' 字';
+    document.getElementById('s4').classList.toggle('done',n>0);
+    setPickLabel('txt',n+' 字');
     var chip=document.querySelector('[data-sum="txt"]'); chip.classList.toggle('set',n>0);
     chip.innerHTML='<span class="k">文案</span> '+n+' 字';
     refresh();
@@ -295,20 +405,10 @@
   document.getElementById('aiwrite').addEventListener('click',function(){
     ta.value=(ta.value.trim()||"今天分享三个开店小技巧")+" —— 划重点，看到最后有惊喜，记得点赞收藏关注！"; onText();
   });
-  var go=document.getElementById('go');
-  function refresh(){
-    var ok=picks.ava&&picks.voice&&picks.tpl&&picks.txt>0;
-    go.disabled=!ok;
-    document.getElementById('etas').textContent = picks.txt>120?'~3':'~2';
-  }
-  // ---- 队列同源:前端和队列中心(server.py)同域,直接打相对路径,无需配任何地址 ----
 
-  // ---- 前端模板中文名 -> 后端 tpl 值 ----
-  var TPL_MAP={'知识科普':'knowledge','电商带货':'ecommerce','餐饮探店':'ecommerce','财经职场':'ecommerce'};
-
+  // ============ 进度弹窗 + 提交(跟真实 status) ============
   var ov=document.getElementById('ov'), flow=document.getElementById('flow'),
-      vwrap=document.getElementById('vwrap'), ovh=document.getElementById('ovh'),
-      ovs=document.getElementById('ovs');
+      vwrap=document.getElementById('vwrap'), ovh=document.getElementById('ovh'), ovs=document.getElementById('ovs');
   var steps=document.querySelectorAll('.fstep');
   var poller=null, curStep=0;
 
@@ -336,53 +436,48 @@
   function showVideo(url){
     if(poller){ clearInterval(poller); poller=null; }
     paintSteps(0, true);
-    var src=url;  // 同源:后端返回 /pub/<id>.mp4 相对路径,直接用
     flow.style.display='none';
     ovh.textContent='生成完成 🎉';
-    ovs.innerHTML='「'+picks.tpl+'」风格 · 1080×1920 高清';
+    ovs.innerHTML='「'+esc(picks.tplName||'')+'」风格 · 1080×1920 高清';
     vwrap.innerHTML=
       '<video controls autoplay playsinline style="width:100%;max-height:58vh;border-radius:14px;background:#000"></video>'
      +'<div class="dl"><button id="again">再做一条</button>'
      +'<a class="prim" id="dl" download style="flex:1;text-align:center;text-decoration:none;line-height:2.6">下载视频</a></div>';
-    vwrap.querySelector('video').src=src;
-    var a=document.getElementById('dl'); a.href=src;
+    vwrap.querySelector('video').src=url;
+    var a=document.getElementById('dl'); a.href=url;
     vwrap.classList.add('show');
     document.getElementById('again').onclick=closeOverlay;
   }
-
   function pollJob(id){
     curStep=0;
     poller=setInterval(function(){
       fetch('/jobs/'+id).then(function(r){return r.json();}).then(function(j){
         if(!j || j.status==='failed'){ showError((j&&(j.error||('出片失败 rc='+(j.rc!=null?j.rc:'?'))))||'任务失败'); return; }
         if(j.status==='done'){ if(j.url) showVideo(j.url); else showError('已完成但未拿到成片链接'); return; }
-        // queued / running:进度条随真实 running 往前推,末步留到 done 才打勾
         if(j.status==='running' && curStep<steps.length-1){ curStep++; }
         paintSteps(curStep, false);
-      }).catch(function(){ /* 轮询瞬时错误,忽略,下次再试 */ });
+      }).catch(function(){ /* 轮询瞬时错误,忽略 */ });
     }, 3000);
   }
 
   go.addEventListener('click',function(){
-    document.getElementById('ovmeta').textContent=picks.ava+' · '+picks.voice+' · '+picks.tpl;
-    // 复位弹窗到「进度」态
+    var meta=(picks.avaName||'')+' · '+((picks.voice==='克隆'?('克隆·'+(picks.voiceLabel||'')):(picks.voice||'')))+' · '+(picks.tplName||'');
     vwrap.classList.remove('show'); vwrap.innerHTML='';
     flow.style.display=''; ovh.textContent='正在生成你的视频';
     ovs.innerHTML='用「<span id="ovmeta2"></span>」合成,请稍候';
-    document.getElementById('ovmeta2').textContent=picks.ava+' · '+picks.voice+' · '+picks.tpl;
+    document.getElementById('ovmeta2').textContent=meta;
     curStep=0; paintSteps(0, false);
     ov.classList.add('show'); go.disabled=true;
-    var body={ text: ta.value.trim(), tpl: (TPL_MAP[picks.tpl]||'ecommerce'), avatar: picks.ava, voice: picks.voice };
+    var body={ text: ta.value.trim(), tpl: picks.tpl||'ecommerce', voice: picks.voice,
+               driver: picks.driver, voice_ref: picks.voice_ref||'', asset_imgs: picks.imgs };
     fetch('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json();})
-      .then(function(d){
-        if(!d || !d.id){ throw new Error((d&&d.error)||'提交失败,请稍后重试'); }
-        pollJob(d.id);
-      })
+      .then(function(d){ if(!d || !d.id){ throw new Error((d&&d.error)||'提交失败,请稍后重试'); } pollJob(d.id); })
       .catch(function(e){ showError((e&&e.message)||'无法连接队列服务,请稍后重试'); });
   });
-
   ov.addEventListener('click',function(e){ if(e.target===ov) closeOverlay(); });
+
+  loadAssets();
 })();
 </script>
 </body></html>
