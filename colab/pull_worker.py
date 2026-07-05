@@ -31,8 +31,16 @@ job 字段(和前端/server 约定):
 
 env:NO_PUBLISH=1(不在 worker 里发布)、WORKDIR=<临时目录>、WORKER_AUTOSTART=0。
 
+FAKE_PRODUCE=1(无 GPU 验证链路开关):
+  设 FAKE_PRODUCE=1(或 true/yes/on)时,run_job 下载完素材后**跳过 produce.sh /
+  LatentSync / GPU**,改用 ffmpeg 就地造一个 ~4s、720x1280、25fps 的占位 mp4 当"成片"
+  (带烧字 + 一条正弦音轨),照常 post_result 回传队列中心。用于在任何装了 ffmpeg 的
+  CPU 机器上验证整条队列链路闭环:拉任务→下载素材→回传成片→前端拿到片,不需要真 GPU。
+  真出片逻辑完全不受影响(不设或非真值时一行不改)。
+
 起法(Colab):
-  QUEUE_URL=https://krvoice.cicy-ai.com python colab/pull_worker.py
+  真出片:  QUEUE_URL=https://krvoice.cicy-ai.com python colab/pull_worker.py
+  假出片验链路(无 GPU): FAKE_PRODUCE=1 QUEUE_URL=https://krvoice.cicy-ai.com python colab/pull_worker.py
 """
 import os, sys, time, shutil, tempfile, subprocess, uuid, threading
 from urllib.parse import quote, urlparse
@@ -142,6 +150,7 @@ def stream_produce(jid, cmd, env):
 
     try:
         for line in iter(p.stdout.readline, ""):
+            sys.stdout.write(line); sys.stdout.flush()   # 前台跑时实时打到 Colab cell(不再被 subprocess 吞掉)
             local_append(line)
             buf.append(line)
             tail.append(line)
@@ -161,6 +170,153 @@ def stream_produce(jid, cmd, env):
     if timed_out["v"]:
         raise subprocess.TimeoutExpired(cmd, TIMEOUT)
     return p.returncode, "".join(tail)[-3000:]
+
+
+FAKE_TRUE = ("1", "true", "yes", "on")
+
+
+def _fake_enabled():
+    return str(os.environ.get("FAKE_PRODUCE", "")).strip().lower() in FAKE_TRUE
+
+
+def _find_cjk_font():
+    """找一个能显示中文的字体文件路径,找不到返回 None(不因字体失败,后面会退化成英文/纯色)。"""
+    candidates = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        "/usr/share/fonts/truetype/arphic/ukai.ttc",
+        "/System/Library/Fonts/PingFang.ttc",             # macOS 本地自测兜底
+        "/System/Library/Fonts/STHeiti Light.ttc",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    try:
+        out = subprocess.run(["fc-list", ":lang=zh", "file"],
+                             capture_output=True, text=True, timeout=10).stdout
+        for line in out.splitlines():
+            fp = line.split(":", 1)[0].strip().rstrip(":").strip()
+            if fp and os.path.exists(fp):
+                return fp
+    except Exception:
+        pass
+    return None
+
+
+def _find_any_font():
+    """随便找一个能显示英文的字体文件,找不到返回 None。"""
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    try:
+        out = subprocess.run(["fc-list", "file"],
+                             capture_output=True, text=True, timeout=10).stdout
+        for line in out.splitlines():
+            fp = line.split(":", 1)[0].strip().rstrip(":").strip()
+            if fp and os.path.exists(fp):
+                return fp
+    except Exception:
+        pass
+    return None
+
+
+def _ff_escape_path(p):
+    """drawtext 的 fontfile/textfile 路径转义:反斜杠、冒号、单引号。"""
+    return str(p).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def _build_fake_cmds(job, workdir, final):
+    """构造若干套 ffmpeg 命令(从"带烧字"到"纯色兜底"),依次尝试,保证在任意装了
+    ffmpeg 的机器上都能造出一个能播放的 mp4。文本用 textfile= 传(天然避开冒号/单引号/
+    中文的转义地狱),字体找不到就退化到英文,再找不到就干脆不 drawtext 只留纯色底。"""
+    text20 = (str(job.get("text") or "")).strip().replace("\r", " ").replace("\n", " ")[:20]
+    jid = job["id"]
+
+    # 中文烧字文案(有中文字体时用)
+    cap_cn = os.path.join(workdir, "_fake_caption_cn.txt")
+    with open(cap_cn, "w", encoding="utf-8") as f:
+        f.write(f"【链路验证·假成片】\n{text20}\nid: {jid}")
+    # 英文兜底文案(没有中文字体时用,避免豆腐块)
+    cap_en = os.path.join(workdir, "_fake_caption_en.txt")
+    with open(cap_en, "w", encoding="utf-8") as f:
+        f.write(f"FAKE PRODUCE OK\n{jid}")
+
+    def base_inputs():
+        # 纯色底 4s 720x1280@25 + 一条 440Hz 正弦音轨(证明音视频都在)
+        return ["ffmpeg", "-hide_banner", "-y",
+                "-f", "lavfi", "-i", "color=c=0x1e2430:s=720x1280:r=25:d=4",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=4"]
+
+    def encode_tail():
+        return ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+                "-c:a", "aac", "-shortest", "-t", "4", final]
+
+    def drawtext_vf(font, cap_file):
+        opts = [
+            "textfile='%s'" % _ff_escape_path(cap_file),
+            "reload=0",
+            "fontcolor=white", "fontsize=44", "line_spacing=18",
+            "box=1", "boxcolor=black@0.45", "boxborderw=24",
+            "x=(w-text_w)/2", "y=(h-text_h)/2",
+        ]
+        if font:
+            opts.insert(0, "fontfile='%s'" % _ff_escape_path(font))
+        return "drawtext=" + ":".join(opts)
+
+    attempts = []
+    cjk = _find_cjk_font()
+    anyf = _find_any_font()
+    if cjk:
+        attempts.append(("中文烧字", base_inputs() + ["-vf", drawtext_vf(cjk, cap_cn)] + encode_tail()))
+    if anyf:
+        attempts.append(("英文烧字(无中文字体)", base_inputs() + ["-vf", drawtext_vf(anyf, cap_en)] + encode_tail()))
+    # drawtext 用系统默认字体(有些 ffmpeg 内置 fontconfig 能自动挑字体)
+    attempts.append(("默认字体英文烧字", base_inputs() + ["-vf", drawtext_vf(None, cap_en)] + encode_tail()))
+    # 最终兜底:完全不 drawtext,只有纯色底 + 音轨,保证一定出片
+    attempts.append(("纯色兜底(不烧字)", base_inputs() + encode_tail()))
+    return attempts
+
+
+def fake_produce(job, workdir):
+    """FAKE_PRODUCE=1 时的假出片:跳过 produce.sh/GPU,用 ffmpeg 造占位 final.mp4 当成片。
+    复用 stream_produce 跑 ffmpeg,合并的 stdout/stderr 也会实时 worklog 回传队列中心。
+    造成功后 report_status(jid,"running",95) 并返回 (True, log_tail),外层照常 post_result。"""
+    jid = job["id"]
+    final = os.path.join(workdir, "final.mp4")
+    worklog("[worker] ⚡ FAKE_PRODUCE=1:跳过真出片(produce.sh/LatentSync/GPU),ffmpeg 造占位成片…", jid)
+    report_status(jid, "running", 60)
+
+    env = dict(os.environ)
+    last_tail = ""
+    for i, (desc, cmd) in enumerate(_build_fake_cmds(job, workdir, final), 1):
+        worklog(f"[worker] · 假出片尝试 {i}:{desc}", jid)
+        try:
+            rc, last_tail = stream_produce(jid, cmd, env)
+        except subprocess.TimeoutExpired:
+            worklog("[worker] · 该尝试超时,换下一套 ffmpeg 命令", jid)
+            continue
+        except Exception as e:
+            worklog(f"[worker] · 该尝试异常:{e},换下一套 ffmpeg 命令", jid)
+            continue
+        if rc == 0 and os.path.exists(final) and os.path.getsize(final) > 0:
+            size_kb = os.path.getsize(final) // 1024
+            worklog(f"[worker] ✔ 占位成片已生成 {size_kb}KB(链路验证用假成片,非真出片)", jid)
+            report_status(jid, "running", 95)
+            return True, last_tail
+        worklog(f"[worker] · 假出片尝试 {i} 未产出(rc={rc}),换下一套", jid)
+    return False, last_tail or "FAKE_PRODUCE:所有 ffmpeg 造片尝试都失败(机器上有 ffmpeg 吗?)"
 
 
 def run_job(job, workdir):
@@ -211,6 +367,12 @@ def run_job(job, workdir):
         assets = imgdir
 
     worklog("[worker] ✔ 素材下载完成", jid)
+
+    # FAKE_PRODUCE=1:无 GPU 验链路开关。下载完素材后、调 produce.sh 前拦截,
+    # 用 ffmpeg 造占位成片当出片成功,外层照常 post_result 回传(status=done + file)。
+    if _fake_enabled():
+        return fake_produce(job, workdir)
+
     final = os.path.join(workdir, "final.mp4")
     cmd = ["bash", f"{REPO}/colab/produce.sh",
            driver, job["text"], job.get("tpl", "ecommerce"),
